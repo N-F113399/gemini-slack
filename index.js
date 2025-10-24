@@ -55,10 +55,17 @@ async function handleEvent(event) {
     parts: [{ text: `${entry.role === "user" ? "User" : "Bot"}: ${entry.text}` }]
   }));
 
+  const promptPrefix = `
+あなたはSlackボットです。
+出力ではSlackのマークダウン記法（*太字*、_斜体_、> 引用、\`コード\` など）を一切使わないでください。
+常にプレーンテキストだけで、自然な文章として回答してください。
+出力内で「記法を使っていません」といった説明も不要です。
+`;
+
   // プロンプト先頭にSlack記法指示を追加
   contents.unshift({
     parts: [{
-      text: "あなたの返答はSlackのメッセージ用フォーマットに従って書いてください。また、slack記法で記載したことを返答に含める必要はありません。"
+      text: promptPrefix
     }]
   });
 
