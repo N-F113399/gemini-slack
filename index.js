@@ -4,28 +4,45 @@ import fetch from "node-fetch";
 const app = express();
 app.use(express.json());
 
-// 過去イベント対策用：処理済みイベントを記録
+// 過去イベント対策
 const processedEvents = new Set();
+
+// Markdown → Slack形式変換関数
+function markdownToSlack(md) {
+  let text = md;
+
+  // 見出し (#, ##, ###) → 太字
+  text = text.replace(/^### (.+)$/gm, "*$1*");
+  text = text.replace(/^## (.+)$/gm, "*$1*");
+  text = text.replace(/^# (.+)$/gm, "*$1*");
+
+  // 箇条書き (- または *) → •
+  text = text.replace(/^\s*[-*] (.+)$/gm, "• $1");
+
+  // 改行統一
+  text = text.replace(/\r\n/g, "\n");
+
+  return text;
+}
 
 app.post("/slack/events", (req, res) => {
   const { type, challenge, event } = req.body;
 
-  // 🔹 Slack URL verification
+  // URL verification
   if (type === "url_verification") {
     console.log("URL verification challenge:", challenge);
     return res.status(200).send({ challenge });
   }
 
-  // 🔹 ここで先に 200 を返す（Slack の再送防止）
+  // Slack に先に 200 を返す
   res.sendStatus(200);
 
-  // 🔹 イベントが存在する場合のみ処理
+  // イベントが存在しない / 既処理なら無視
   if (!event || processedEvents.has(event.ts)) return;
 
-  // 🔹 Bot 自身のイベントは無視
+  // Bot自身のイベントは無視
   if (event.bot_id) return;
 
-  // 🔹 処理済みにマーク
   processedEvents.add(event.ts);
 
   handleEvent(event);
@@ -35,7 +52,6 @@ async function handleEvent(event) {
   if (event.type === "app_mention") {
     const userMessage = event.text.replace(/<@[^>]+>\s*/, "");
 
-    // 🔹 Gemini API の URL
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
     const requestBody = {
@@ -57,12 +73,17 @@ async function handleEvent(event) {
       const data = await geminiRes.json();
       console.log("Gemini response:", data);
 
-      reply = data.candidates?.[0]?.content?.parts?.[0]?.text || reply;
+      const mdText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+      // Markdownかどうか判定
+      const isMarkdown = /(^# |\n-|^\* )/m.test(mdText);
+      reply = isMarkdown ? markdownToSlack(mdText) : mdText;
+
     } catch (err) {
       console.error("Error calling Gemini:", err);
     }
 
-    // 🔹 Slack に返信
+    // Slack に返信
     try {
       await fetch("https://slack.com/api/chat.postMessage", {
         method: "POST",
