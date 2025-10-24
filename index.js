@@ -4,7 +4,10 @@ import fetch from "node-fetch";
 const app = express();
 app.use(express.json());
 
-app.post("/slack/events", async (req, res) => {
+// 過去イベント対策用：処理済みイベントを記録
+const processedEvents = new Set();
+
+app.post("/slack/events", (req, res) => {
   const { type, challenge, event } = req.body;
 
   // 🔹 Slack URL verification
@@ -13,11 +16,26 @@ app.post("/slack/events", async (req, res) => {
     return res.status(200).send({ challenge });
   }
 
-  // 🔹 通常のメッセージ処理
-  if (event && event.type === "app_mention" && !event.bot_id) {
+  // 🔹 ここで先に 200 を返す（Slack の再送防止）
+  res.sendStatus(200);
+
+  // 🔹 イベントが存在する場合のみ処理
+  if (!event || processedEvents.has(event.ts)) return;
+
+  // 🔹 Bot 自身のイベントは無視
+  if (event.bot_id) return;
+
+  // 🔹 処理済みにマーク
+  processedEvents.add(event.ts);
+
+  handleEvent(event);
+});
+
+async function handleEvent(event) {
+  if (event.type === "app_mention") {
     const userMessage = event.text.replace(/<@[^>]+>\s*/, "");
 
-    // 🔹 Gemini API リクエスト
+    // 🔹 Gemini API の URL
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
     const requestBody = {
@@ -44,7 +62,7 @@ app.post("/slack/events", async (req, res) => {
       console.error("Error calling Gemini:", err);
     }
 
-    // 🔹 Slack へ返信
+    // 🔹 Slack に返信
     try {
       await fetch("https://slack.com/api/chat.postMessage", {
         method: "POST",
@@ -62,9 +80,7 @@ app.post("/slack/events", async (req, res) => {
       console.error("Error sending message to Slack:", err);
     }
   }
-
-  res.sendStatus(200);
-});
+}
 
 app.get("/", (req, res) => res.send("Slack-Gemini Bot is running!"));
 
