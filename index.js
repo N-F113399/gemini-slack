@@ -7,21 +7,18 @@ app.use(express.json());
 // 過去イベント対策
 const processedEvents = new Set();
 
+// ユーザーごとの会話履歴管理
+const userHistories = {}; // { userId: [ {role, text}, ... ] }
+const MAX_HISTORY = 10;    // 最大 10 件まで保持
+
 // Markdown → Slack形式変換関数
 function markdownToSlack(md) {
   let text = md;
-
-  // 見出し (#, ##, ###) → 太字
   text = text.replace(/^### (.+)$/gm, "*$1*");
   text = text.replace(/^## (.+)$/gm, "*$1*");
   text = text.replace(/^# (.+)$/gm, "*$1*");
-
-  // 箇条書き (- または *) → •
   text = text.replace(/^\s*[-*] (.+)$/gm, "• $1");
-
-  // 改行統一
   text = text.replace(/\r\n/g, "\n");
-
   return text;
 }
 
@@ -49,57 +46,68 @@ app.post("/slack/events", (req, res) => {
 });
 
 async function handleEvent(event) {
-  if (event.type === "app_mention") {
-    const userMessage = event.text.replace(/<@[^>]+>\s*/, "");
+  if (event.type !== "app_mention") return;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const userMessage = event.text.replace(/<@[^>]+>\s*/, "");
+  const userId = event.user;
 
-    const requestBody = {
-      contents: [
-        { parts: [{ text: userMessage }] }
-      ]
-    };
+  // 履歴取得
+  if (!userHistories[userId]) userHistories[userId] = [];
+  const history = userHistories[userId];
 
-    console.log("Sending to Gemini:", JSON.stringify(requestBody));
+  // 履歴にユーザー発言を追加
+  history.push({ role: "user", text: userMessage });
 
-    let reply = "No response from Gemini";
-    try {
-      const geminiRes = await fetch(geminiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody)
-      });
+  // 過去 MAX_HISTORY 件だけ残す
+  if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
 
-      const data = await geminiRes.json();
-      console.log("Gemini response:", data);
+  // Gemini に送る contents を作成
+  const contents = history.map(entry => ({
+    parts: [{ text: `${entry.role === "user" ? "User" : "Bot"}: ${entry.text}` }]
+  }));
 
-      const mdText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
-      // Markdownかどうか判定
-      const isMarkdown = /(^# |\n-|^\* )/m.test(mdText);
-      reply = isMarkdown ? markdownToSlack(mdText) : mdText;
+  let reply = "No response from Gemini";
+  try {
+    const geminiRes = await fetch(geminiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents })
+    });
 
-    } catch (err) {
-      console.error("Error calling Gemini:", err);
-    }
+    const data = await geminiRes.json();
+    console.log("Gemini response:", data);
 
-    // Slack に返信
-    try {
-      await fetch("https://slack.com/api/chat.postMessage", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`
-        },
-        body: JSON.stringify({
-          channel: event.channel,
-          thread_ts: event.ts,
-          text: reply
-        })
-      });
-    } catch (err) {
-      console.error("Error sending message to Slack:", err);
-    }
+    const mdText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    // Markdown判定
+    const isMarkdown = /(^# |\n-|^\* )/m.test(mdText);
+    reply = isMarkdown ? markdownToSlack(mdText) : mdText;
+
+    // 履歴にBotの返答も追加
+    history.push({ role: "bot", text: reply });
+
+  } catch (err) {
+    console.error("Error calling Gemini:", err);
+  }
+
+  // Slack に返信
+  try {
+    await fetch("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`
+      },
+      body: JSON.stringify({
+        channel: event.channel,
+        thread_ts: event.ts,
+        text: reply
+      })
+    });
+  } catch (err) {
+    console.error("Error sending message to Slack:", err);
   }
 }
 
