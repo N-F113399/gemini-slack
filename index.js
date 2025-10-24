@@ -124,7 +124,7 @@ IMPORTANT: All responses must be in Japanese.
 
   const modelName = "gemini-2.5-flash-lite";
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/` + modelName `:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/` + modelName + `:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   let reply = "No response from Gemini";
   try {
