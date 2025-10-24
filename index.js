@@ -4,13 +4,19 @@ import fetch from "node-fetch";
 const app = express();
 app.use(express.json());
 
-// Slackからのイベント受信
 app.post("/slack/events", async (req, res) => {
-  const { event } = req.body;
-  if (event && event.type === "app_mention" && !event.bot_id) {
-    const userMessage = event.text.replace(/<@[^>]+>\s*/, ""); // メンション除去
+  const { type, challenge, event } = req.body;
 
-    // Gemini API呼び出し
+  // 🔹 Slack URL verification の処理
+  if (type === "url_verification") {
+    return res.status(200).send({ challenge });
+  }
+
+  // 🔹 通常のメッセージ処理
+  if (event && event.type === "app_mention" && !event.bot_id) {
+    const userMessage = event.text.replace(/<@[^>]+>\s*/, "");
+
+    // Gemini API 呼び出し
     const geminiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
@@ -26,7 +32,7 @@ app.post("/slack/events", async (req, res) => {
     const reply =
       data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from Gemini";
 
-    // Slackへ返信
+    // Slack へ返信
     await fetch("https://slack.com/api/chat.postMessage", {
       method: "POST",
       headers: {
@@ -40,9 +46,8 @@ app.post("/slack/events", async (req, res) => {
       }),
     });
   }
+
   res.sendStatus(200);
 });
-
-app.get("/", (req, res) => res.send("Slack bot is running!"));
 
 app.listen(10000, () => console.log("Server running on port 10000"));
