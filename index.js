@@ -18,7 +18,7 @@ app.post("/slack/events", async (req, res) => {
     const userMessage = event.text.replace(/<@[^>]+>\s*/, "");
 
     // 🔹 Gemini API リクエスト
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
     const requestBody = {
       contents: [
