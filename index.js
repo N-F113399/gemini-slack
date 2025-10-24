@@ -11,17 +11,6 @@ const processedEvents = new Set();
 const userHistories = {}; // { userId: [ {role, text}, ... ] }
 const MAX_HISTORY = 10;    // 最大 10 件まで保持
 
-// Markdown → Slack形式変換関数
-function markdownToSlack(md) {
-  let text = md;
-  text = text.replace(/^### (.+)$/gm, "*$1*");
-  text = text.replace(/^## (.+)$/gm, "*$1*");
-  text = text.replace(/^# (.+)$/gm, "*$1*");
-  text = text.replace(/^\s*[-*] (.+)$/gm, "• $1");
-  text = text.replace(/\r\n/g, "\n");
-  return text;
-}
-
 app.post("/slack/events", (req, res) => {
   const { type, challenge, event } = req.body;
 
@@ -66,7 +55,14 @@ async function handleEvent(event) {
     parts: [{ text: `${entry.role === "user" ? "User" : "Bot"}: ${entry.text}` }]
   }));
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  // プロンプト先頭にSlack記法指示を追加
+  contents.unshift({
+    parts: [{
+      text: "あなたの返答はSlackのメッセージ用フォーマットに従って書いてください。箇条書きは•、太字は*で囲み、リンクやコードもSlack記法で表現してください。"
+    }]
+  });
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-light:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   let reply = "No response from Gemini";
   try {
@@ -79,11 +75,8 @@ async function handleEvent(event) {
     const data = await geminiRes.json();
     console.log("Gemini response:", data);
 
-    const mdText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-    // Markdown判定
-    const isMarkdown = /(^# |\n-|^\* )/m.test(mdText);
-    reply = isMarkdown ? markdownToSlack(mdText) : mdText;
+    // Geminiからの返答を取得
+    reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
     // 履歴にBotの返答も追加
     history.push({ role: "bot", text: reply });
