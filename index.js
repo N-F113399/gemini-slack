@@ -62,7 +62,7 @@ async function handleEvent(event) {
     }]
   });
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-light:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   let reply = "No response from Gemini";
   try {
