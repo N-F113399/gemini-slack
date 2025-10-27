@@ -1,5 +1,5 @@
 import express from "express";
-import slackEventsRouter from "./src/routes/slackEvents.js";
+import slackEventsRouter from "./src/routes/slackEvent.js";
 
 import { fileURLToPath } from "url";
 import { dirname } from "path";
