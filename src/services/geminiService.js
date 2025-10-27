@@ -1,6 +1,5 @@
 import { getUserHistory, addUserMessage, addBotMessage } from "../utils/historyManager.js";
 import { sendSlackMessage } from "./slackService.js";
-import { faruzanPrompt } from "../prompts/faruzanPrompt.js";
 
 export async function handleAppMention(event) {
   const userId = event.user;
@@ -13,7 +12,7 @@ export async function handleAppMention(event) {
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   const contents = [
-    { parts: [{ text: faruzanPrompt.trim() }] },
+    { parts: [{ text: process.env.SYSTEM_PROMPT }] },
     ...history.map(entry => ({
       parts: [{ text: `${entry.role === "user" ? "User" : "Bot"}: ${entry.text}` }]
     }))
