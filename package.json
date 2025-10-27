@@ -6,6 +6,6 @@
     "node-fetch": "^3.3.2"
   },
   "scripts": {
-    "start": "node index.js"
+    "start": "pwd && ls -R && node index.js"
   }
 }
