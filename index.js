@@ -1,6 +1,17 @@
 import express from "express";
 import slackEventsRouter from "./routes/slackEvents.js";
 
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import path from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+console.log("=== 実行中のファイルパス ===", __filename);
+console.log("=== 実行中のディレクトリ ===", __dirname);
+console.log("=== routes の絶対パス ===", path.resolve(__dirname, "src/routes/slackEvents.js"));
+
 const app = express();
 app.use(express.json());
 
