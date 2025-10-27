@@ -1,5 +1,5 @@
 import express from "express";
-import slackEventsRouter from "./src/routes/slackEvents.js";
+import slackEventsRouter from "./routes/slackEvents.js";
 
 const app = express();
 app.use(express.json());
