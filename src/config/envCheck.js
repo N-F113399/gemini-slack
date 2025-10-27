@@ -4,6 +4,7 @@ export function checkEnvVars() {
   const requiredVars = [
     "SLACK_BOT_TOKEN",
     "GEMINI_API_KEY",
+    "SYSTEM_PROMPT",
   ];
 
   const missing = requiredVars.filter((key) => !process.env[key]);
