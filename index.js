@@ -10,7 +10,7 @@ const __dirname = dirname(__filename);
 
 console.log("=== 実行中のファイルパス ===", __filename);
 console.log("=== 実行中のディレクトリ ===", __dirname);
-console.log("=== routes の絶対パス ===", path.resolve(__dirname, "src/routes/slackEvents.js"));
+console.log("=== routes の絶対パス ===", path.resolve(__dirname, "src/routes/slackEvent.js"));
 
 const app = express();
 app.use(express.json());
