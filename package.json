@@ -8,6 +8,6 @@
     "winston": "^3.18.3"
   },
   "scripts": {
-    "start": "echo '=== 現在のディレクトリ ===' && pwd && echo '=== index.js のある場所 ===' && ls -l ./index.js && echo '=== routes ディレクトリ ===' && ls -l ./src/routes && echo '=== カレントディレクトリ内容 ===' && ls -l && echo '=== 実行開始 ===' && node index.js"
+    "start": "node index.js"
   }
 }
