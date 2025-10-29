@@ -1,5 +1,5 @@
 import fetch from "node-fetch";
-import { sendSlackMessage, fetchSlackConversationHistory } from "./slackService.js";
+import { sendSlackMessage, fetchSlackThreadHistory } from "./slackService.js";
 
 export async function handleAppMention(event) {
   const userId = event.user;
@@ -7,7 +7,7 @@ export async function handleAppMention(event) {
   const userMessage = event.text.replace(/<@[^>]+>\s*/, "");
 
   // Slack履歴取得（直近10件）
-  const history = await fetchSlackConversationHistory(channelId, event.ts);
+  const history = await fetchSlackThreadHistory(channelId, event.ts);
 
   const modelName = "gemini-2.5-flash-lite";
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
