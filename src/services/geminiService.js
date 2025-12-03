@@ -11,15 +11,57 @@ const DEFAULT_MODEL = "gemini-2.5-flash-lite";
  * @param {object} event Slack event object
  */
 export async function handleAppMention(event) {
-  const userId = event.user;
-  const channelId = event.channel;
-  const threadTs = event.thread_ts || event.ts;
-  const rawText = event.text || "";
+  const DEFAULT_HISTORY_LIMIT = 10;
+  const DEFAULT_TIMEOUT_MS = 15000;
+  const DEFAULT_MAX_USER_MESSAGE_LENGTH = 4000;
+
+  const safeEvent = event || {};
+  const userId = safeEvent.user;
+  const channelId = safeEvent.channel;
+  const threadTs = safeEvent.thread_ts || safeEvent.ts;
+  const rawText = safeEvent.text || "";
+
+  const missingFields = [];
+  if (!userId) missingFields.push("user");
+  if (!channelId) missingFields.push("channel");
+  if (!safeEvent.text) missingFields.push("text");
+
+  if (missingFields.length > 0) {
+    const guidance = "メンションの形式が不正です。もう一度メッセージを送ってください。";
+    logger.warn(`Missing required event fields: ${missingFields.join(", ")}`);
+    if (channelId) {
+      try {
+        await sendSlackMessage(channelId, threadTs, guidance);
+      } catch (err) {
+        logger.error(`Failed to send missing-field guidance: ${err.message}`);
+      }
+    }
+    return;
+  }
+
   const userMessage = rawText.replace(/<@[^>]+>\s*/, "").trim();
+  const maxUserMessageLengthEnv = Number(process.env.MAX_USER_MESSAGE_LENGTH);
+  const maxUserMessageLength = Number.isFinite(maxUserMessageLengthEnv)
+    ? maxUserMessageLengthEnv
+    : DEFAULT_MAX_USER_MESSAGE_LENGTH;
 
   logger.info(`📣 app_mention from user=${userId} channel=${channelId} thread=${threadTs}`);
   logger.debug(`📥 Event body: ${JSON.stringify(event, null, 2)}`);
   logger.debug(`📝 Parsed userMessage: ${userMessage}`);
+
+  if (!userMessage) {
+    await sendSlackMessage(channelId, threadTs, "メッセージ内容が空です。質問や内容を入力してください。");
+    return;
+  }
+
+  if (userMessage.length > maxUserMessageLength) {
+    await sendSlackMessage(
+      channelId,
+      threadTs,
+      `メッセージが長すぎます。${maxUserMessageLength}文字以内で入力してください。`
+    );
+    return;
+  }
 
   // 1) Save incoming user message to DB (encrypted inside saveMessage)
   try {
@@ -37,7 +79,13 @@ export async function handleAppMention(event) {
   }
 
   // 2) Load latest context from DB (返信のみの最新 N 件; returns oldest->newest)
-  const historyLimit = Number(process.env.HISTORY_MAX || 10);
+  const historyLimitEnv = Number(process.env.HISTORY_MAX);
+  const historyLimit = Number.isFinite(historyLimitEnv) && historyLimitEnv > 0
+    ? historyLimitEnv
+    : DEFAULT_HISTORY_LIMIT;
+  if (!Number.isFinite(historyLimitEnv) || historyLimitEnv <= 0) {
+    logger.info(`historyLimit is invalid; defaulting to ${historyLimit}`);
+  }
   let replies = [];
   try {
     replies = await getLatestReplies(channelId, threadTs, historyLimit);
@@ -67,7 +115,13 @@ export async function handleAppMention(event) {
   logger.debug("🔧 Gemini request contents:", JSON.stringify(contents, null, 2));
 
   // 4) Call Gemini with timeout
-  const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS || 15000);
+  const timeoutMsEnv = Number(process.env.GEMINI_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(timeoutMsEnv) && timeoutMsEnv > 0
+    ? timeoutMsEnv
+    : DEFAULT_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMsEnv) || timeoutMsEnv <= 0) {
+    logger.info(`timeoutMs is invalid; defaulting to ${timeoutMs}`);
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -85,9 +139,13 @@ export async function handleAppMention(event) {
     logger.debug("📩 Gemini raw response:", JSON.stringify(data, null, 2));
 
     if (!res.ok) {
-      const errMsg = `Gemini API Error: ${data.error?.message || JSON.stringify(data)}`;
-      logger.error(errMsg);
-      await sendSlackMessage(channelId, threadTs, errMsg);
+      const errMsg = data.error?.message || JSON.stringify(data);
+      logger.error(`Gemini API Error: ${errMsg}`);
+      await sendSlackMessage(
+        channelId,
+        threadTs,
+        "Gemini でエラーが発生しました。少し時間をおいて再度お試しください。"
+      );
       return;
     }
 
@@ -124,8 +182,12 @@ export async function handleAppMention(event) {
       logger.warn(timeoutMsg);
       await sendSlackMessage(channelId, threadTs, timeoutMsg);
     } else {
-      logger.error("Error calling Gemini: " + error.message);
-      await sendSlackMessage(channelId, threadTs, `Gemini通信中にエラーが発生しました: ${error.message}`);
+      logger.error("Error calling Gemini: " + error.message, error);
+      await sendSlackMessage(
+        channelId,
+        threadTs,
+        "Gemini でエラーが発生しました。少し時間をおいて再度お試しください。"
+      );
     }
   }
 }
