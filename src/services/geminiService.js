@@ -5,6 +5,46 @@ import { getLatestReplies, saveMessage } from "./messageStore.js";
 import { sendSlackMessage } from "./slackService.js";
 
 const DEFAULT_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_RETRY_LIMIT = 5;
+
+function getRetryModelNames() {
+  const rawModels = process.env.GEMINI_RETRY_MODELS || "";
+  const parsed = rawModels
+    .split(",")
+    .map(model => model.trim())
+    .filter(Boolean);
+  return parsed;
+}
+
+function isRateLimitError(res, data) {
+  if (res && res.status === 429) {
+    return true;
+  }
+  const status = data?.error?.status;
+  const message = data?.error?.message || "";
+  return status === "RESOURCE_EXHAUSTED" || message.toLowerCase().includes("quota");
+}
+
+async function fetchGeminiResponse({ contents, modelName, timeoutMs }) {
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(geminiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    const data = await res.json();
+    return { res, data };
+  } catch (error) {
+    clearTimeout(timeout);
+    throw error;
+  }
+}
 
 /**
  * Handle an app_mention event: load context from DB, call Gemini, persist & reply.
@@ -99,7 +139,7 @@ export async function handleAppMention(event) {
   // 3) Build Gemini contents (system prompt + history + last user message)
   const systemPrompt = process.env.SYSTEM_PROMPT || "";
   const modelName = process.env.GEMINI_MODEL || DEFAULT_MODEL;
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const retryModelNames = getRetryModelNames();
 
   const historyParts = replies.map(r => {
     const who = r.role === "user" ? "User" : "Bot";
@@ -122,35 +162,47 @@ export async function handleAppMention(event) {
   if (!Number.isFinite(timeoutMsEnv) || timeoutMsEnv <= 0) {
     logger.info(`timeoutMs is invalid; defaulting to ${timeoutMs}`);
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    const res = await fetch(geminiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents }),
-      signal: controller.signal,
-    });
+    const retryLimitEnv = Number(process.env.GEMINI_RETRY_LIMIT);
+    const retryLimit = Number.isFinite(retryLimitEnv) && retryLimitEnv > 0
+      ? retryLimitEnv
+      : DEFAULT_RETRY_LIMIT;
+    const retryModels = retryModelNames.slice(0, retryLimit);
+    const modelCandidates = [modelName, ...retryModels];
 
-    clearTimeout(timeout);
+    let responseData = null;
+    let responseModel = modelName;
 
-    const data = await res.json();
-    logger.debug("📩 Gemini raw response:", JSON.stringify(data, null, 2));
+    for (let index = 0; index < modelCandidates.length; index += 1) {
+      const currentModel = modelCandidates[index];
+      responseModel = currentModel;
+      logger.info(`🔁 Gemini request attempt ${index + 1}/${modelCandidates.length} with model=${currentModel}`);
+      const { res, data } = await fetchGeminiResponse({ contents, modelName: currentModel, timeoutMs });
+      logger.debug("📩 Gemini raw response:", JSON.stringify(data, null, 2));
 
-    if (!res.ok) {
-      const errMsg = data.error?.message || JSON.stringify(data);
-      logger.error(`Gemini API Error: ${errMsg}`);
-      await sendSlackMessage(
-        channelId,
-        threadTs,
-        "Gemini でエラーが発生しました。少し時間をおいて再度お試しください。"
-      );
-      return;
+      if (res.ok) {
+        responseData = data;
+        break;
+      }
+
+      if (!isRateLimitError(res, data) || index === modelCandidates.length - 1) {
+        const errMsg = data.error?.message || JSON.stringify(data);
+        logger.error(`Gemini API Error: ${errMsg}`);
+        await sendSlackMessage(
+          channelId,
+          threadTs,
+          "Gemini でエラーが発生しました。少し時間をおいて再度お試しください。"
+        );
+        return;
+      }
+
+      logger.warn(`Gemini quota hit on model=${currentModel}. Retrying with next model.`);
     }
 
-    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || "（応答がありませんでした）";
+    const reply =
+      responseData?.candidates?.[0]?.content?.parts?.[0]?.text || "（応答がありませんでした）";
     logger.info("💬 Gemini reply retrieved");
+    logger.info(`💬 Gemini reply model: ${responseModel}`);
     logger.debug("💬 reply text:", reply);
 
     // 5) Post to Slack and save bot message into DB
@@ -176,7 +228,6 @@ export async function handleAppMention(event) {
       try { await sendSlackMessage(channelId, threadTs, "返信の送信中にエラーが発生しました。"); } catch (_) {}
     }
   } catch (error) {
-    clearTimeout(timeout);
     if (error.name === "AbortError") {
       const timeoutMsg = `Gemini の応答がタイムアウトしました（${timeoutMs}ms）。`;
       logger.warn(timeoutMsg);
