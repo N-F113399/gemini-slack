@@ -136,12 +136,17 @@ export async function handleAppMention(event) {
     replies = [];
   }
 
+  const filteredReplies = replies.filter(reply => reply.message_ts !== event.ts);
+  if (filteredReplies.length !== replies.length) {
+    logger.info("🧹 Removed current user message from context to avoid duplication.");
+  }
+
   // 3) Build Gemini contents (system prompt + history + last user message)
   const systemPrompt = process.env.SYSTEM_PROMPT || "";
   const modelName = process.env.GEMINI_MODEL || DEFAULT_MODEL;
   const retryModelNames = getRetryModelNames();
 
-  const historyParts = replies.map(r => {
+  const historyParts = filteredReplies.map(r => {
     const who = r.role === "user" ? "User" : "Bot";
     return { parts: [{ text: `${who}: ${r.text}` }] };
   });
