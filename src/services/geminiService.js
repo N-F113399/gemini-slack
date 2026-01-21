@@ -172,6 +172,7 @@ export async function handleAppMention(event) {
 
     let responseData = null;
     let responseModel = modelName;
+    let replyText = null;
 
     for (let index = 0; index < modelCandidates.length; index += 1) {
       const currentModel = modelCandidates[index];
@@ -181,7 +182,11 @@ export async function handleAppMention(event) {
       logger.debug("📩 Gemini raw response:", JSON.stringify(data, null, 2));
 
       if (res.ok) {
+        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         responseData = data;
+        replyText = candidateText && candidateText.trim()
+          ? candidateText
+          : "（応答がありませんでした）";
         break;
       }
 
@@ -199,8 +204,7 @@ export async function handleAppMention(event) {
       logger.warn(`Gemini quota hit on model=${currentModel}. Retrying with next model.`);
     }
 
-    const reply =
-      responseData?.candidates?.[0]?.content?.parts?.[0]?.text || "（応答がありませんでした）";
+    const reply = replyText || "（応答がありませんでした）";
     logger.info("💬 Gemini reply retrieved");
     logger.info(`💬 Gemini reply model: ${responseModel}`);
     logger.debug("💬 reply text:", reply);
