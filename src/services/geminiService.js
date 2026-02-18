@@ -209,7 +209,7 @@ export async function handleAppMention(event) {
       logger.warn(`Gemini quota hit on model=${currentModel}. Retrying with next model.`);
     }
 
-    const reply = replyText || "（応答がありませんでした）";
+    const reply = `${replyText || "（応答がありませんでした）"}\n\n---\n使用モデル: ${responseModel}`;
     logger.info("💬 Gemini reply retrieved");
     logger.info(`💬 Gemini reply model: ${responseModel}`);
     logger.debug("💬 reply text:", reply);
