@@ -189,9 +189,10 @@ export async function handleAppMention(event) {
       if (res.ok) {
         const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         responseData = data;
-        replyText = candidateText && candidateText.trim()
-          ? candidateText
-          : "（応答がありませんでした）";
+        const cleanedText = candidateText
+          ? candidateText.replace(/\n\n---\n使用モデル:.*$/s, "").trim()
+          : "";
+        replyText = cleanedText || "（応答がありませんでした）";
         break;
       }
 
