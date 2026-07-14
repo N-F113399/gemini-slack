@@ -4,7 +4,7 @@ import logger from "../utils/logger.js";
 import { getLatestReplies, saveMessage } from "./messageStore.js";
 import { sendSlackMessage } from "./slackService.js";
 
-const DEFAULT_MODEL = "gemini-flash-lite-latest";
+const DEFAULT_MODEL = "gemini-2.5-flash-lite";
 const DEFAULT_RETRY_LIMIT = 5;
 const BASE_BACKOFF_MS = 300;
 const MAX_BACKOFF_MS = 4000;
@@ -250,6 +250,10 @@ export async function handleAppMention(event) {
         ? candidateText.replace(/\n\n---\n使用モデル:.*$/s, "").trim()
         : "";
       replyText = cleanedText || "（応答がありませんでした）";
+      // Use the actual model version returned by the API (e.g. "gemini-2.5-flash-lite-001")
+      // rather than the alias we requested (e.g. "gemini-flash-lite-latest").
+      // Falls back to the requested name if the field is absent.
+      responseModel = data?.modelVersion || currentModel;
       break;
     }
 
