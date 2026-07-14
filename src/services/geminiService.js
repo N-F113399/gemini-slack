@@ -4,7 +4,7 @@ import logger from "../utils/logger.js";
 import { getLatestReplies, saveMessage } from "./messageStore.js";
 import { sendSlackMessage } from "./slackService.js";
 
-const DEFAULT_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_MODEL = "gemini-flash-lite-latest";
 const DEFAULT_RETRY_LIMIT = 5;
 const BASE_BACKOFF_MS = 300;
 const MAX_BACKOFF_MS = 4000;
