@@ -11,6 +11,7 @@ import usageRouter from "./src/routes/usage.js";
 import usageQuotaRouter from "./src/routes/usageQuota.js";
 import { usageTracker } from "./src/services/usage/usageTracker.js";
 import { usageMonitorScheduler } from "./src/services/monitoring/usageMonitorScheduler.js";
+import { usageRetentionScheduler } from "./src/services/usage/usageRetentionScheduler.js";
 
 dotenv.config();
 checkEnvVars();
@@ -35,5 +36,6 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   usageMonitorScheduler.start();
+  usageRetentionScheduler.start();
   logger.info(`🚀 Server running on port ${PORT}`);
 });
