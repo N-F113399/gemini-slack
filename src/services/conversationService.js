@@ -5,9 +5,20 @@ import { updateSummaryIfNeeded } from "./conversationSummaryService.js";
 import { sendSlackMessage } from "./slackService.js";
 import { generate } from "./gemini/geminiService.js";
 import { buildPrompt } from "./gemini/promptBuilder.js";
+import { resolveSlackFiles } from "./content/slackFileResolver.js";
+import { processImageContent } from "./content/processors/imageProcessor.js";
+import { adaptContentsToGeminiParts } from "./content/adapters/geminiContentAdapter.js";
+import { ContentError, CONTENT_ERROR_CODES } from "./content/contentErrors.js";
 
 const DEFAULT_HISTORY_LIMIT = 10;
 const DEFAULT_MAX_USER_MESSAGE_LENGTH = 4000;
+
+function getImageContents(files = []) {
+  return files.filter(file => {
+    const mimeType = file.mimetype || file.mime_type || "";
+    return mimeType.toLowerCase().startsWith("image/");
+  });
+}
 
 /**
  * Orchestrate one Slack conversation turn.
@@ -24,7 +35,7 @@ export async function handleAppMention(event) {
   const missingFields = [];
   if (!userId) missingFields.push("user");
   if (!channelId) missingFields.push("channel");
-  if (!safeEvent.text) missingFields.push("text");
+  if (!safeEvent.text && (!safeEvent.files || safeEvent.files.length === 0)) missingFields.push("text");
 
   if (missingFields.length > 0) {
     const guidance = "メンションの形式が不正です。もう一度メッセージを送ってください。";
@@ -49,8 +60,8 @@ export async function handleAppMention(event) {
   logger.debug(`📥 Event body: ${JSON.stringify(event, null, 2)}`);
   logger.debug(`📝 Parsed userMessage: ${userMessage}`);
 
-  if (!userMessage) {
-    await sendSlackMessage(channelId, threadTs, "メッセージ内容が空です。質問や内容を入力してください。");
+  if (!userMessage && (!safeEvent.files || safeEvent.files.length === 0)) {
+    await sendSlackMessage(channelId, threadTs, "質問や添付ファイルを入力してください。");
     return;
   }
 
@@ -70,7 +81,7 @@ export async function handleAppMention(event) {
       message_ts: event.ts,
       user_id: userId,
       role: "user",
-      text: userMessage,
+      text: userMessage || "[file attachment]",
     });
     logger.debug("💾 incoming message saved to DB");
   } catch (err) {
@@ -101,15 +112,40 @@ export async function handleAppMention(event) {
     logger.error("Failed to build conversation context: " + err.message);
   }
 
+  let inputParts = [];
+  const imageFiles = getImageContents(safeEvent.files || []);
+
+  if (imageFiles.length > 0) {
+    try {
+      const contents = await resolveSlackFiles(imageFiles);
+      const processedImages = contents.map(processImageContent);
+      inputParts = adaptContentsToGeminiParts(processedImages);
+      logger.info(`🖼️ Prepared ${processedImages.length} image file(s) for Gemini`);
+    } catch (err) {
+      const message = err instanceof ContentError
+        ? `添付ファイルを処理できませんでした: ${err.message}`
+        : "添付ファイルの処理中にエラーが発生しました。";
+      logger.error(`Failed to process image attachments: ${err.message}`);
+      await sendSlackMessage(channelId, threadTs, message);
+      return;
+    }
+  }
+
+  const unsupportedFiles = (safeEvent.files || []).filter(file => !imageFiles.includes(file));
+  if (unsupportedFiles.length > 0) {
+    logger.info(`Ignoring ${unsupportedFiles.length} non-image attachment(s) until their processors are implemented`);
+  }
+
   const systemPrompt = process.env.SYSTEM_PROMPT || "";
   const contents = buildPrompt({
     systemPrompt,
     history: context.recentMessages,
     summary: context.summary,
-    userMessage,
+    userMessage: userMessage || "添付した画像を確認してください。",
+    inputParts,
   });
 
-  logger.debug("🔧 Gemini request contents:", JSON.stringify(contents, null, 2));
+  logger.debug("🔧 Gemini request contents prepared");
 
   let result;
   try {
