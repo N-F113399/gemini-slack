@@ -66,10 +66,6 @@ function isPrivateIpv4(address) {
     || inRange(0xa9fe0000, 0xa9feffff)
     || inRange(0xac100000, 0xac1fffff)
     || inRange(0xc0a80000, 0xc0a8ffff)
-    || inRange(0xc0000000, 0xc00000ff)
-    || inRange(0xc0000200, 0xc00002ff)
-    || inRange(0xc6336400, 0xc63364ff)
-    || inRange(0xcb007100, 0xcb0071ff)
     || inRange(0xe0000000, 0xffffffff);
 }
 
@@ -151,8 +147,8 @@ async function readResponseBody(response, maxSize) {
 
 export async function fetchUrlContent(rawUrl, options = {}) {
   let currentUrl = rawUrl;
-  const maxResponseSize = options.maxResponseSize || getMaxResponseSize();
-  const timeoutMs = options.timeoutMs || getTimeoutMs();
+  const maxResponseSize = positiveNumber(options.maxResponseSize, getMaxResponseSize());
+  const timeoutMs = positiveNumber(options.timeoutMs, getTimeoutMs());
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
     await validateUrlTarget(currentUrl);
@@ -203,22 +199,10 @@ export async function resolveUrl(rawUrl) {
   return createContent({
     id: `url:${result.finalUrl}`,
     kind: CONTENT_KINDS.REMOTE,
-    source: {
-      type: SOURCE_TYPES.URL,
-      ref: rawUrl,
-      url: rawUrl,
-    },
-    original: {
-      mimeType: result.mimeType,
-      size: result.size,
-      url: result.finalUrl,
-    },
+    source: { type: SOURCE_TYPES.URL, ref: rawUrl, url: rawUrl },
+    original: { mimeType: result.mimeType, size: result.size, url: result.finalUrl },
     representations: [
-      {
-        type: REPRESENTATION_TYPES.ORIGINAL,
-        mimeType: result.mimeType,
-        size: result.size,
-      },
+      { type: REPRESENTATION_TYPES.ORIGINAL, mimeType: result.mimeType, size: result.size },
       createBinaryRepresentation({ data: result.data, mimeType: result.mimeType }),
     ],
     metadata: {
@@ -231,6 +215,12 @@ export async function resolveUrl(rawUrl) {
 
 export function extractUrls(text = "") {
   if (typeof text !== "string") return [];
-  const urls = text.match(/https?:\/\/[^\s<>]+/gi) || [];
-  return [...new Set(urls.map(url => url.replace(/[),.!?;:'\"]+$/, "")))];
+
+  const slackLinks = [...text.matchAll(/<((?:https?):\/\/[^|>\s]+)(?:\|[^>]+)?>/gi)].map(match => match[1]);
+  const plainLinks = text
+    .replace(/<((?:https?):\/\/[^|>\s]+)(?:\|[^>]+)?>/gi, " ")
+    .match(/https?:\/\/[^\s<>]+/gi) || [];
+
+  const urls = [...slackLinks, ...plainLinks].map(url => url.replace(/[),.!?;:'\"]+$/, ""));
+  return [...new Set(urls)];
 }
