@@ -17,12 +17,12 @@ export function formatUsageAlert(alert) {
   return `⚠️ ${typeLabel}: ${alert.service}/${alert.provider} is ${value} (threshold: ${threshold})`;
 }
 
-export async function notifyUsageAlerts(alerts, { send = null } = {}) {
+export async function notifyUsageAlerts(alerts, { send = null, sender = null } = {}) {
   if (!Array.isArray(alerts) || alerts.length === 0) return { sent: 0 };
-  const sender = send || (async message => logger.warn(message));
+  const sendFn = send || sender || (async message => logger.warn(message));
   let sent = 0;
   for (const alert of alerts) {
-    await sender(formatUsageAlert(alert));
+    await sendFn(formatUsageAlert(alert), alert);
     sent += 1;
   }
   return { sent };
