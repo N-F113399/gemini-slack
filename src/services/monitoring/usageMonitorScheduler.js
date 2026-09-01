@@ -41,14 +41,14 @@ export class UsageMonitorScheduler {
   constructor({
     getReport,
     getQuotaReport,
-    getQualityReport,
+    getQualityReport = null,
     evaluate,
     evaluateQuality,
     notify,
   } = {}) {
     this.getReport = getReport ?? defaultGetReport;
     this.getQuotaReport = getQuotaReport ?? defaultGetQuotaReport;
-    this.getQualityReport = getQualityReport ?? defaultGetQualityReport;
+    this.getQualityReport = getQualityReport;
     this.evaluate = evaluate ?? defaultEvaluate;
     this.evaluateQuality = evaluateQuality ?? defaultEvaluateQuality;
     this.notify = notify ?? defaultNotify;
@@ -60,13 +60,16 @@ export class UsageMonitorScheduler {
     if (this.running) return { skipped: true, alerts: 0 };
     this.running = true;
     try {
-      const [report, quotaReport, qualityReport] = await Promise.all([
+      const [report, quotaReport] = await Promise.all([
         this.getReport({ to: now }),
         this.getQuotaReport({ now }),
-        this.getQualityReport({ to: now }),
       ]);
       const alerts = await this.evaluate({ summary: report.byProvider, quotas: quotaReport.quotas });
-      const qualityAlerts = await this.evaluateQuality({ report: qualityReport });
+      let qualityAlerts = [];
+      if (this.getQualityReport) {
+        const qualityReport = await this.getQualityReport({ to: now });
+        qualityAlerts = await this.evaluateQuality({ report: qualityReport });
+      }
       const allAlerts = [...alerts, ...qualityAlerts];
       if (allAlerts.length > 0) await this.notify(allAlerts);
       return { skipped: false, alerts: allAlerts.length };
@@ -95,4 +98,6 @@ export class UsageMonitorScheduler {
   }
 }
 
-export const usageMonitorScheduler = new UsageMonitorScheduler();
+export const usageMonitorScheduler = new UsageMonitorScheduler({
+  getQualityReport: defaultGetQualityReport,
+});
