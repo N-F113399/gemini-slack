@@ -6,14 +6,15 @@ import { handleAppMention } from "../services/geminiService.js";
 
 const router = express.Router();
 
+let OWN_BOT_USER_ID = process.env.SLACK_BOT_USER_ID || null;
 let OWN_BOT_ID = process.env.SLACK_BOT_ID || null;
-let fetchingOwnBotId = null;
+let resolvingBotIdentity = null;
 
-async function resolveOwnBotId() {
-  if (OWN_BOT_ID) return OWN_BOT_ID;
-  if (fetchingOwnBotId) return fetchingOwnBotId;
+async function resolveBotIdentity() {
+  if (OWN_BOT_USER_ID && OWN_BOT_ID) return { userId: OWN_BOT_USER_ID, botId: OWN_BOT_ID };
+  if (resolvingBotIdentity) return resolvingBotIdentity;
 
-  fetchingOwnBotId = (async () => {
+  resolvingBotIdentity = (async () => {
     try {
       const res = await fetch("https://slack.com/api/auth.test", {
         method: "POST",
@@ -25,21 +26,22 @@ async function resolveOwnBotId() {
       const body = await res.json();
 
       if (body.ok) {
-        OWN_BOT_ID = body.bot_id || body.user_id || null;
-        logger.info("Resolved OWN_BOT_ID: " + OWN_BOT_ID);
+        OWN_BOT_USER_ID = OWN_BOT_USER_ID || body.user_id || null;
+        OWN_BOT_ID = OWN_BOT_ID || body.bot_id || null;
+        logger.info(`Resolved bot identity: user_id=${OWN_BOT_USER_ID} bot_id=${OWN_BOT_ID}`);
       } else {
         logger.warn("auth.test failed: " + JSON.stringify(body));
       }
     } catch (err) {
       logger.error("Failed to call auth.test: " + err.message);
     } finally {
-      fetchingOwnBotId = null;
+      resolvingBotIdentity = null;
     }
 
-    return OWN_BOT_ID;
+    return { userId: OWN_BOT_USER_ID, botId: OWN_BOT_ID };
   })();
 
-  return fetchingOwnBotId;
+  return resolvingBotIdentity;
 }
 
 const processedEvents = new Set();
@@ -50,10 +52,9 @@ function getEventKey(event) {
   return event?.event_ts || event?.ts || null;
 }
 
-function hasOwnBotMention(event, botId) {
-  if (!botId || typeof event?.text !== "string") return false;
-  const mentionPattern = new RegExp(`<@${botId}(?:\\|[^>]+)?>`);
-  return mentionPattern.test(event.text);
+function hasOwnBotMention(event, botUserId) {
+  if (!botUserId || typeof event?.text !== "string") return false;
+  return new RegExp(`<@${botUserId}(?:\\|[^>]+)?>`).test(event.text);
 }
 
 router.post("/", async (req, res) => {
@@ -63,7 +64,6 @@ router.post("/", async (req, res) => {
     return res.status(200).send({ challenge });
   }
 
-  // ACK Slack immediately; processing happens asynchronously.
   res.sendStatus(200);
 
   if (!event) return;
@@ -72,17 +72,23 @@ router.post("/", async (req, res) => {
   if (eventKey && processedEvents.has(eventKey)) return;
   if (eventKey) processedEvents.add(eventKey);
 
+  const { userId: ownBotUserId, botId: ownBotId } = await resolveBotIdentity();
+
   // Ignore this bot's own messages to prevent response loops.
-  const ownId = await resolveOwnBotId();
-  if (event.bot_id && ownId && event.bot_id === ownId) {
-    logger.debug("Ignoring own bot event (prevent loop). bot_id=" + event.bot_id);
+  if (
+    (event.bot_id && ownBotId && event.bot_id === ownBotId) ||
+    (event.user && ownBotUserId && event.user === ownBotUserId)
+  ) {
+    logger.debug(
+      `Ignoring own bot event (user_id=${event.user || "none"} bot_id=${event.bot_id || "none"})`,
+    );
     return;
   }
 
   if (event.subtype === "message_changed") return;
 
   const isAppMention = event.type === "app_mention";
-  const isMessageMention = event.type === "message" && hasOwnBotMention(event, ownId);
+  const isMessageMention = event.type === "message" && hasOwnBotMention(event, ownBotUserId);
 
   if (!isAppMention && !isMessageMention) return;
 
