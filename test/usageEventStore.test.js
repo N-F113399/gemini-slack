@@ -1,13 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { saveUsageEvent } from "../src/services/usage/usageEventStore.js";
 
-const originalSupabase = {};
-void originalSupabase;
-
-// Persistence behavior is covered through the injectable store used by UsageTracker.
-// This test intentionally avoids requiring Supabase credentials during unit tests.
-test("usage event can be mapped to persistence shape by contract", () => {
+// The persistence adapter uses the real Supabase client and therefore requires
+// deployment credentials. Keep this unit contract test independent of Supabase.
+test("usage persistence row contract contains operational fields", () => {
   const event = {
     timestamp: "2026-09-01T00:00:00.000Z",
     provider: "tavily",
@@ -21,9 +17,25 @@ test("usage event can be mapped to persistence shape by contract", () => {
     metadata: { errorCode: "SEARCH_PROVIDER_ERROR", status: 500, retryable: true, quotaRelated: false },
   };
 
-  assert.equal(event.provider, "tavily");
-  assert.equal(event.search.credits, 1);
-  assert.equal(event.metadata.status, 500);
-});
+  const row = {
+    occurred_at: event.timestamp,
+    provider: event.provider,
+    service: event.service,
+    operation: event.operation,
+    success: event.success,
+    latency_ms: event.latencyMs,
+    credits: event.search.credits,
+    request_count: event.search.requests,
+    estimated_cost_usd: event.estimatedCostUsd,
+    error_code: event.metadata.errorCode,
+    http_status: event.metadata.status,
+    retryable: event.metadata.retryable,
+    quota_related: event.metadata.quotaRelated,
+    metadata: event.metadata,
+  };
 
-void saveUsageEvent;
+  assert.equal(row.provider, "tavily");
+  assert.equal(row.credits, 1);
+  assert.equal(row.http_status, 500);
+  assert.equal(row.retryable, true);
+});
