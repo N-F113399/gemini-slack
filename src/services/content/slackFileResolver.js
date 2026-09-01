@@ -6,7 +6,7 @@ import {
   SOURCE_TYPES,
   REPRESENTATION_TYPES,
 } from "./contentTypes.js";
-import { ContentError } from "./contentErrors.js";
+import { ContentError, CONTENT_ERROR_CODES } from "./contentErrors.js";
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 10000;
@@ -30,22 +30,28 @@ function getMimeType(file) {
 
 export function validateSlackFile(file) {
   if (!file?.id) {
-    throw new ContentError("INVALID_CONTENT", "Slack file id is required");
+    throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, "Slack file id is required");
   }
   if (!file.url_private_download && !file.url_private) {
-    throw new ContentError("INVALID_CONTENT", "Slack private download URL is required");
+    throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, "Slack private download URL is required");
   }
 
   const size = Number(file.size);
   if (Number.isFinite(size) && size > getMaxFileSize()) {
-    throw new ContentError("CONTENT_TOO_LARGE", `Slack file exceeds the ${getMaxFileSize()} byte limit`);
+    throw new ContentError(
+      CONTENT_ERROR_CODES.CONTENT_TOO_LARGE,
+      `Slack file exceeds the ${getMaxFileSize()} byte limit`,
+    );
   }
 }
 
 async function readResponseBody(response, maxSize) {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxSize) {
-    throw new ContentError("CONTENT_TOO_LARGE", `Slack file exceeds the ${maxSize} byte limit`);
+    throw new ContentError(
+      CONTENT_ERROR_CODES.CONTENT_TOO_LARGE,
+      `Slack file exceeds the ${maxSize} byte limit`,
+    );
   }
 
   const chunks = [];
@@ -53,7 +59,10 @@ async function readResponseBody(response, maxSize) {
   for await (const chunk of response.body) {
     total += chunk.length;
     if (total > maxSize) {
-      throw new ContentError("CONTENT_TOO_LARGE", `Slack file exceeds the ${maxSize} byte limit`);
+      throw new ContentError(
+        CONTENT_ERROR_CODES.CONTENT_TOO_LARGE,
+        `Slack file exceeds the ${maxSize} byte limit`,
+      );
     }
     chunks.push(chunk);
   }
@@ -76,7 +85,10 @@ export async function downloadSlackFile(file) {
     });
 
     if (!response.ok) {
-      throw new ContentError("INVALID_CONTENT", `Slack file download failed with status ${response.status}`);
+      throw new ContentError(
+        CONTENT_ERROR_CODES.INVALID_CONTENT,
+        `Slack file download failed with status ${response.status}`,
+      );
     }
 
     const data = await readResponseBody(response, getMaxFileSize());
@@ -88,9 +100,12 @@ export async function downloadSlackFile(file) {
   } catch (err) {
     if (err instanceof ContentError) throw err;
     if (err.name === "AbortError") {
-      throw new ContentError("URL_TIMEOUT", `Slack file download timed out after ${getTimeoutMs()}ms`);
+      throw new ContentError(
+        CONTENT_ERROR_CODES.URL_TIMEOUT,
+        `Slack file download timed out after ${getTimeoutMs()}ms`,
+      );
     }
-    throw new ContentError("INVALID_CONTENT", err.message);
+    throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, err.message);
   } finally {
     clearTimeout(timeout);
   }
