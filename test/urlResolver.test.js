@@ -10,6 +10,13 @@ test("extractUrls extracts unique http and https URLs", () => {
   );
 });
 
+test("extractUrls supports Slack link markup", () => {
+  assert.deepEqual(
+    extractUrls("Read <https://example.com/article|the article> and https://example.org/docs"),
+    ["https://example.com/article", "https://example.org/docs"],
+  );
+});
+
 test("isBlockedAddress rejects private IPv4 addresses", () => {
   assert.equal(isBlockedAddress("127.0.0.1"), true);
   assert.equal(isBlockedAddress("10.0.0.1"), true);
