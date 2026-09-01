@@ -18,7 +18,6 @@ export async function saveUsageEvent(event) {
     total_tokens: event.tokens?.total ?? null,
     credits: event.search?.credits ?? null,
     request_count: event.search?.requests ?? null,
-    estimated_cost_usd: event.estimatedCostUsd ?? null,
     error_code: event.metadata?.errorCode ?? null,
     http_status: event.metadata?.status ?? null,
     retryable: event.metadata?.retryable ?? null,
