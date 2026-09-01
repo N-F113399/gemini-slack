@@ -40,6 +40,24 @@ test("decideSearch enables search for explicit research intent", () => {
   assert.equal(result.reason, "research_intent");
 });
 
+test("decideSearch does not treat generic check as a search request", () => {
+  const result = decideSearch("check this code for a null handling bug");
+  assert.equal(result.shouldSearch, false);
+  assert.equal(result.reason, "none");
+});
+
+test("decideSearch does not treat generic find as a web search request", () => {
+  const result = decideSearch("find the bug in this function");
+  assert.equal(result.shouldSearch, false);
+  assert.equal(result.reason, "none");
+});
+
+test("decideSearch recognizes explicit online lookup intent", () => {
+  const result = decideSearch("look up PostgreSQL 18 changes");
+  assert.equal(result.shouldSearch, true);
+  assert.equal(result.reason, "research_intent");
+});
+
 test("decideSearch does not search ordinary requests", () => {
   const result = decideSearch("PostgreSQLについて教えて");
   assert.equal(result.shouldSearch, false);
