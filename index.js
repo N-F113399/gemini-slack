@@ -8,6 +8,7 @@ import slackEventsRouter from "./src/routes/slackEvent.js";
 import slackCommandsRouter from "./src/routes/slackCommand.js";
 import slackShortcutRouter from "./src/routes/slackShortcut.js";
 import usageRouter from "./src/routes/usage.js";
+import usageQuotaRouter from "./src/routes/usageQuota.js";
 import { usageTracker } from "./src/services/usage/usageTracker.js";
 
 dotenv.config();
@@ -23,8 +24,8 @@ app.use("/slack/events", slackEventsRouter);
 app.use("/slack/commands", slackCommandsRouter);
 app.use("/slack/shortcuts", slackShortcutRouter);
 app.use("/usage", usageRouter);
+app.use("/usage/quota", usageQuotaRouter);
 
-// グローバルエラーハンドラ
 app.use((err, req, res, next) => {
   const response = handleError(err, "Express");
   res.status(500).json(response);
