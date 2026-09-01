@@ -7,9 +7,13 @@ import { handleError } from "./src/utils/errorHandler.js";
 import slackEventsRouter from "./src/routes/slackEvent.js";
 import slackCommandsRouter from "./src/routes/slackCommand.js";
 import slackShortcutRouter from "./src/routes/slackShortcut.js";
+import { usageTracker } from "./src/services/usage/usageTracker.js";
 
 dotenv.config();
 checkEnvVars();
+
+const { saveUsageEvent } = await import("./src/services/usage/usageEventStore.js");
+usageTracker.setPersistence(saveUsageEvent);
 
 const app = express();
 app.use(bodyParser.json());
