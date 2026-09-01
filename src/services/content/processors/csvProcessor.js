@@ -83,7 +83,7 @@ export function processCsvContent(content) {
   }
 
   const text = Buffer.from(binary.data).toString("utf8");
-  const { maxTextLength } = getContentLimits();
+  const { maxTextLength, maxCsvRows } = getContentLimits();
   if (text.length > maxTextLength) {
     throw new ContentError(
       CONTENT_ERROR_CODES.CONTENT_TOO_LARGE,
@@ -95,7 +95,6 @@ export function processCsvContent(content) {
   const rows = parseCsvRows(text);
   const headers = rows.length > 0 ? rows[0] : [];
   const dataRows = rows.slice(1);
-  const { maxCsvRows = 10_000 } = getContentLimits();
 
   if (headers.length === 0) {
     throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, "CSV header row is required");
