@@ -116,10 +116,11 @@ export function buildSelectedEvidenceText(selection) {
   }
 
   return selection.items.map((item, index) => {
+    const sourceId = `S${index + 1}`;
     const title = item.source?.title || item.source?.url || `Source ${index + 1}`;
     const url = item.source?.url || "";
     const evidence = item.evidence.map(part => part.text).join("\n\n");
-    return `[Web Source ${index + 1}]\nTitle: ${title}\nURL: ${url}\n${evidence}`;
+    return `[${sourceId}] [Web Source ${index + 1}]\nTitle: ${title}\nURL: ${url}\n${evidence}`;
   }).join("\n\n");
 }
 
