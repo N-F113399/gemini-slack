@@ -59,11 +59,12 @@ function createProviderError(code, message, status = null, cause = null) {
 }
 
 export class TavilySearchProvider extends SearchProvider {
-  constructor() {
+  constructor({ fetchImpl = fetch } = {}) {
     super({
       name: SEARCH_PROVIDER_NAMES.TAVILY,
       capabilities: SEARCH_PROVIDER_CAPABILITIES[SEARCH_PROVIDER_NAMES.TAVILY],
     });
+    this.fetchImpl = fetchImpl;
   }
 
   async search(query) {
@@ -82,7 +83,7 @@ export class TavilySearchProvider extends SearchProvider {
     let response;
     let data;
     try {
-      response = await fetch(API_URL, {
+      response = await this.fetchImpl(API_URL, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
