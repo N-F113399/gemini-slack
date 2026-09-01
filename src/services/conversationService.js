@@ -12,6 +12,7 @@ import { createConfiguredSearchService } from "./search/searchServiceFactory.js"
 import { decideSearch } from "./search/searchDecision.js";
 import { selectEvidence, buildSelectedEvidenceText } from "./search/evidenceSelector.js";
 import { wrapExternalContent } from "./security/externalContentGuard.js";
+import { buildAttributionInstruction } from "./search/evidenceAttribution.js";
 import { usageTracker } from "./usage/usageTracker.js";
 
 const DEFAULT_HISTORY_LIMIT = 10;
@@ -126,6 +127,9 @@ export async function handleAppMention(event) {
       const searchContext = buildSelectedEvidenceText(selection);
       if (searchContext) {
         inputParts.push({
+          text: buildAttributionInstruction(),
+        });
+        inputParts.push({
           text: wrapExternalContent(searchContext, {
             source: `web search (${searchResponse.provider.name})`,
           }),
@@ -133,6 +137,7 @@ export async function handleAppMention(event) {
       }
       searchSources = selection.items.map((item, index) => ({
         index: index + 1,
+        sourceId: `S${index + 1}`,
         title: item.source?.title || item.source?.url || `Source ${index + 1}`,
         url: item.source?.url || null,
         provider: item.source?.provider || null,
@@ -226,7 +231,7 @@ export async function handleAppMention(event) {
   const cleanReply = result.text || "（応答がありませんでした）";
   const sourceText = searchSources.length > 0
     ? `\n\nSources:\n${searchSources
-      .map(source => `[${source.index}] ${source.url ? `<${source.url}|${source.title}>` : source.title}`)
+      .map(source => `[${source.sourceId}] ${source.url ? `<${source.url}|${source.title}>` : source.title}`)
       .join("\n")}`
     : "";
   const displayReply = `${cleanReply}${sourceText}\n\n---\n使用モデル: ${result.model}`;
