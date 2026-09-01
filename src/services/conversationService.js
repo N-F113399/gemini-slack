@@ -63,8 +63,6 @@ export async function handleAppMention(event) {
     return;
   }
 
-  // Save incoming user message. Persistence failures are logged but do not
-  // prevent the current request from reaching Gemini, preserving the old flow.
   try {
     await saveMessage({
       channel_id: channelId,
@@ -132,7 +130,6 @@ export async function handleAppMention(event) {
   logger.info(`💬 Gemini reply model: ${result.model}`);
   logger.debug("💬 reply text:", displayReply);
 
-  // Post to Slack and persist the bot message without the model footer.
   try {
     const slackResp = await sendSlackMessage(channelId, threadTs, displayReply);
 
@@ -148,8 +145,6 @@ export async function handleAppMention(event) {
       });
       logger.debug(`💾 saved bot message to DB (ts=${botTs})`);
 
-      // Summary generation is deliberately detached from the response path.
-      // A summary failure must never make an otherwise successful Slack turn fail.
       updateSummaryIfNeeded({ channel_id: channelId, thread_ts: threadTs })
         .catch((err) => logger.error(`Detached summary update failed: ${err.message}`));
     } else {
