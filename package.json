@@ -9,6 +9,8 @@
     "winston": "^3.18.3"
   },
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test",
+    "check": "node --check index.js && find src -name '*.js' -print0 | xargs -0 -n1 node --check"
   }
 }
