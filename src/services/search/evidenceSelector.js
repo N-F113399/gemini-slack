@@ -5,16 +5,6 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function dedupe(items) {
-  const seen = new Set();
-  return items.filter((item) => {
-    const key = item.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 function getEvidenceCandidates(result) {
   const evidence = result?.evidence || {};
   const candidates = [];
@@ -116,11 +106,10 @@ export function buildSelectedEvidenceText(selection) {
   }
 
   return selection.items.map((item, index) => {
-    const sourceId = `S${index + 1}`;
     const title = item.source?.title || item.source?.url || `Source ${index + 1}`;
     const url = item.source?.url || "";
     const evidence = item.evidence.map(part => part.text).join("\n\n");
-    return `[${sourceId}] [Web Source ${index + 1}]\nTitle: ${title}\nURL: ${url}\n${evidence}`;
+    return `[Web Source ${index + 1}]\nTitle: ${title}\nURL: ${url}\n${evidence}`;
   }).join("\n\n");
 }
 
