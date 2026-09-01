@@ -13,6 +13,7 @@ import { decideSearch } from "./search/searchDecision.js";
 import { selectEvidence, buildSelectedEvidenceText } from "./search/evidenceSelector.js";
 import { wrapExternalContent } from "./security/externalContentGuard.js";
 import { buildAttributionInstruction } from "./search/evidenceAttribution.js";
+import { evaluateCitationCoverage } from "./search/citationCoverage.js";
 import { usageTracker } from "./usage/usageTracker.js";
 
 const DEFAULT_HISTORY_LIMIT = 10;
@@ -203,6 +204,9 @@ export async function handleAppMention(event) {
   try {
     result = await generate({ contents, systemPrompt });
     const usage = result.usage || {};
+    const citationCoverage = searchSources.length > 0
+      ? evaluateCitationCoverage(result.text || "", searchSources.length)
+      : null;
     usageTracker.record({
       provider: "gemini",
       service: "gemini",
@@ -212,8 +216,14 @@ export async function handleAppMention(event) {
       inputTokens: usage.promptTokenCount ?? usage.inputTokenCount,
       outputTokens: usage.candidatesTokenCount ?? usage.outputTokenCount,
       totalTokens: usage.totalTokenCount,
-      metadata: { model: result.model },
+      metadata: {
+        model: result.model,
+        citationCoverage,
+      },
     });
+    if (citationCoverage?.hasInvalidCitation) {
+      logger.warn(`Citation evaluation found invalid source IDs: ${citationCoverage.invalidCitations.join(", ")}`);
+    }
   } catch (err) {
     usageTracker.record({
       provider: "gemini",
