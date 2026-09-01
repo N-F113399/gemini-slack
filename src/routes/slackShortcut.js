@@ -4,9 +4,9 @@ import { handleSlackShortcut } from "../services/slackShortcutService.js";
 
 const router = express.Router();
 
-router.post("/", async (req, res) => {
+router.post("/", express.urlencoded({ extended: false }), async (req, res) => {
   try {
-    const result = await handleSlackShortcut(req.body || {});
+    const result = await handleSlackShortcut(req.body?.payload || req.body || {});
 
     if (!result.supported) {
       return res.status(200).json({ ok: false, reason: result.reason });
