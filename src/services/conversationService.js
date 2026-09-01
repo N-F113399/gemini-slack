@@ -158,7 +158,14 @@ export async function handleAppMention(event) {
       files: safeEvent.files || [],
       text: userMessage,
     });
-    inputParts.push(...adaptContentsToGeminiParts(resolved.contents));
+    const resolvedParts = adaptContentsToGeminiParts(resolved.contents);
+    inputParts.push(...resolvedParts.map((part) => {
+      if (typeof part?.text !== "string") return part;
+      return {
+        ...part,
+        text: wrapExternalContent(part.text, { source: "message content" }),
+      };
+    }));
     logger.info(`📎 Prepared ${resolved.fileCount} attachment(s) and ${resolved.urlCount} URL(s) for Gemini`);
 
     if (resolved.unsupportedFiles.length > 0) {
