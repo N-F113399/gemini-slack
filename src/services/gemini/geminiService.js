@@ -54,8 +54,10 @@ export async function generate({ contents, systemPrompt }) {
     let res;
     let data;
     try {
-      ({ res, data, usageMetadata: currentUsageMetadata } = await generateContent({ contents, systemPrompt, modelName: currentModel, timeoutMs }));
-      if (currentUsageMetadata) usageMetadata = currentUsageMetadata;
+      const generated = await generateContent({ contents, systemPrompt, modelName: currentModel, timeoutMs });
+      res = generated.res;
+      data = generated.data;
+      if (generated.usageMetadata) usageMetadata = generated.usageMetadata;
     } catch (err) {
       lastErrorMsg = err.message;
       logger.warn(`Gemini request threw on model=${currentModel} (${err.name}): ${err.message}`);
