@@ -17,9 +17,19 @@ async function defaultGetQuotaReport(options) {
   return getFreeQuotaReport(options);
 }
 
+async function defaultGetQualityReport(options) {
+  const { getSearchQualityReport } = await import("../usage/searchQualityReportService.js");
+  return getSearchQualityReport(options);
+}
+
 async function defaultEvaluate(options) {
   const { evaluateUsageAlerts } = await import("./usageMonitor.js");
   return evaluateUsageAlerts(options);
+}
+
+async function defaultEvaluateQuality(options) {
+  const { evaluateSearchQualityAlerts } = await import("./searchQualityMonitor.js");
+  return evaluateSearchQualityAlerts(options);
 }
 
 async function defaultNotify(alerts) {
@@ -28,10 +38,19 @@ async function defaultNotify(alerts) {
 }
 
 export class UsageMonitorScheduler {
-  constructor({ getReport, getQuotaReport, evaluate, notify } = {}) {
+  constructor({
+    getReport,
+    getQuotaReport,
+    getQualityReport,
+    evaluate,
+    evaluateQuality,
+    notify,
+  } = {}) {
     this.getReport = getReport ?? defaultGetReport;
     this.getQuotaReport = getQuotaReport ?? defaultGetQuotaReport;
+    this.getQualityReport = getQualityReport ?? defaultGetQualityReport;
     this.evaluate = evaluate ?? defaultEvaluate;
+    this.evaluateQuality = evaluateQuality ?? defaultEvaluateQuality;
     this.notify = notify ?? defaultNotify;
     this.timer = null;
     this.running = false;
@@ -41,13 +60,16 @@ export class UsageMonitorScheduler {
     if (this.running) return { skipped: true, alerts: 0 };
     this.running = true;
     try {
-      const [report, quotaReport] = await Promise.all([
+      const [report, quotaReport, qualityReport] = await Promise.all([
         this.getReport({ to: now }),
         this.getQuotaReport({ now }),
+        this.getQualityReport({ to: now }),
       ]);
       const alerts = await this.evaluate({ summary: report.byProvider, quotas: quotaReport.quotas });
-      if (alerts.length > 0) await this.notify(alerts);
-      return { skipped: false, alerts: alerts.length };
+      const qualityAlerts = await this.evaluateQuality({ report: qualityReport });
+      const allAlerts = [...alerts, ...qualityAlerts];
+      if (allAlerts.length > 0) await this.notify(allAlerts);
+      return { skipped: false, alerts: allAlerts.length };
     } catch (error) {
       logger.error(`Usage monitor run failed: ${error.message}`);
       return { skipped: false, alerts: 0, error };
