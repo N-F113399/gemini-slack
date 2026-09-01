@@ -11,6 +11,7 @@ import { ContentError } from "./content/contentErrors.js";
 import { createConfiguredSearchService } from "./search/searchServiceFactory.js";
 import { decideSearch } from "./search/searchDecision.js";
 import { selectEvidence, buildSelectedEvidenceText } from "./search/evidenceSelector.js";
+import { usageTracker } from "./usage/usageTracker.js";
 
 const DEFAULT_HISTORY_LIMIT = 10;
 const DEFAULT_MAX_USER_MESSAGE_LENGTH = 4000;
@@ -100,10 +101,24 @@ export async function handleAppMention(event) {
 
     try {
       logger.info(`🔎 Web search requested: reason=${searchDecision.reason} query=${searchDecision.query}`);
+      const searchStartedAt = Date.now();
       const searchResponse = await searchService.search({
         text: searchDecision.query,
         language: "ja",
         maxResults: 5,
+      });
+      usageTracker.record({
+        provider: searchResponse.provider.name,
+        service: "search",
+        operation: "search",
+        success: true,
+        latencyMs: Date.now() - searchStartedAt,
+        credits: searchResponse.usage?.credits,
+        requests: searchResponse.usage?.requests ?? 1,
+        estimatedCostUsd: searchResponse.usage?.providerSpecific?.costDollars?.total
+          ?? searchResponse.usage?.providerSpecific?.costDollars
+          ?? null,
+        metadata: { resultCount: searchResponse.results.length },
       });
 
       const selection = selectEvidence(searchResponse, {
@@ -128,6 +143,13 @@ export async function handleAppMention(event) {
       }));
       logger.info(`🔎 Web search completed: provider=${searchResponse.provider.name} results=${searchResponse.results.length} selected=${selection.resultCount}`);
     } catch (err) {
+      usageTracker.record({
+        provider: err?.provider || "unknown",
+        service: "search",
+        operation: "search",
+        success: false,
+        metadata: { code: err?.code || null, status: err?.status || null },
+      });
       logger.error(`Web search failed: ${err.message}`);
       await sendSlackMessage(channelId, threadTs, "Web検索に失敗しました。検索サービスの設定または利用状況を確認してください。");
       return;
@@ -168,9 +190,30 @@ export async function handleAppMention(event) {
   });
 
   let result;
+  const geminiStartedAt = Date.now();
   try {
-    result = await generate({ contents });
+    result = await generate({ contents, systemPrompt });
+    const usage = result.usage || {};
+    usageTracker.record({
+      provider: "gemini",
+      service: "gemini",
+      operation: "generate",
+      success: true,
+      latencyMs: Date.now() - geminiStartedAt,
+      inputTokens: usage.promptTokenCount ?? usage.inputTokenCount,
+      outputTokens: usage.candidatesTokenCount ?? usage.outputTokenCount,
+      totalTokens: usage.totalTokenCount,
+      metadata: { model: result.model },
+    });
   } catch (err) {
+    usageTracker.record({
+      provider: "gemini",
+      service: "gemini",
+      operation: "generate",
+      success: false,
+      latencyMs: Date.now() - geminiStartedAt,
+      metadata: { code: err?.code || null },
+    });
     logger.error(`Gemini API Error: ${err.message}`);
     await sendSlackMessage(channelId, threadTs, "Gemini でエラーが発生しました。少し時間をおいて再度お試しください。");
     return;
