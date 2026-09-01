@@ -9,7 +9,7 @@ router.post("/", async (req, res) => {
     const result = await handleSlackCommand(req.body || {});
 
     if (!result.supported) {
-      return res.status(200).send("Unsupported command. Try /gemini detail, /gemini concise, or /gemini summarize.");
+      return res.status(200).send("Unsupported command. Use /gemini summarize for conversation-level actions.");
     }
 
     if (result.executed) {
