@@ -1,4 +1,4 @@
-// slackEvent.js (抜粋／置き換え用)
+// slackEvent.js
 import express from "express";
 import fetch from "node-fetch";
 import logger from "../utils/logger.js";
@@ -11,7 +11,8 @@ let fetchingOwnBotId = null;
 
 async function resolveOwnBotId() {
   if (OWN_BOT_ID) return OWN_BOT_ID;
-  if (fetchingOwnBotId) return fetchingOwnBotId; // 同時呼び出し防止
+  if (fetchingOwnBotId) return fetchingOwnBotId;
+
   fetchingOwnBotId = (async () => {
     try {
       const res = await fetch("https://slack.com/api/auth.test", {
@@ -21,67 +22,79 @@ async function resolveOwnBotId() {
           "Content-Type": "application/x-www-form-urlencoded",
         },
       });
-      const j = await res.json();
-      if (j.ok) {
-        // Slack の auth.test は workspace 内の bot_id を返す（場合により user_id）
-        OWN_BOT_ID = j.bot_id || j.user_id || null;
+      const body = await res.json();
+
+      if (body.ok) {
+        OWN_BOT_ID = body.bot_id || body.user_id || null;
         logger.info("Resolved OWN_BOT_ID: " + OWN_BOT_ID);
       } else {
-        logger.warn("auth.test failed: " + JSON.stringify(j));
+        logger.warn("auth.test failed: " + JSON.stringify(body));
       }
     } catch (err) {
       logger.error("Failed to call auth.test: " + err.message);
     } finally {
       fetchingOwnBotId = null;
     }
+
     return OWN_BOT_ID;
   })();
+
   return fetchingOwnBotId;
 }
 
 const processedEvents = new Set();
 
-router.post("/", async (req, res) => {
-  const { type, challenge, event } = req.body;
+function getEventKey(event) {
+  if (event?.event_id) return event.event_id;
+  if (event?.channel && event?.ts) return `${event.channel}:${event.ts}`;
+  return event?.event_ts || event?.ts || null;
+}
 
-  // URL確認
+function hasOwnBotMention(event, botId) {
+  if (!botId || typeof event?.text !== "string") return false;
+  const mentionPattern = new RegExp(`<@${botId}(?:\\|[^>]+)?>`);
+  return mentionPattern.test(event.text);
+}
+
+router.post("/", async (req, res) => {
+  const { type, challenge, event } = req.body || {};
+
   if (type === "url_verification") {
     return res.status(200).send({ challenge });
   }
 
-  // Slackへ即時レスポンス（遅延で再送されるのを防ぐ）
+  // ACK Slack immediately; processing happens asynchronously.
   res.sendStatus(200);
 
-  // イベントなし or 再送防止
-  if (!event || processedEvents.has(event.event_ts || event.ts)) return;
-  processedEvents.add(event.event_ts || event.ts);
+  if (!event) return;
 
-  // Bot 自身のイベントは無視（他ボットは許可）
+  const eventKey = getEventKey(event);
+  if (eventKey && processedEvents.has(eventKey)) return;
+  if (eventKey) processedEvents.add(eventKey);
+
+  // Ignore this bot's own messages to prevent response loops.
   const ownId = await resolveOwnBotId();
   if (event.bot_id && ownId && event.bot_id === ownId) {
-    logger.debug(
-      "Ignoring own bot event (prevent loop). bot_id=" + event.bot_id,
-    );
+    logger.debug("Ignoring own bot event (prevent loop). bot_id=" + event.bot_id);
     return;
   }
 
-  // // 編集イベントは無視
-  if (event.subtype && event.subtype === "message_changed") {
-    return;
-  }
+  if (event.subtype === "message_changed") return;
 
-  // handle mention only
-  if (
-    event.type ===
-    "app_mention" /* or event.type === 'message' and check mention */
-  ) {
-    logger.info(`Handling app_mention from ${event.user || event.bot_id}`);
-    logger.debug("Event payload: " + JSON.stringify(event));
-    try {
-      await handleAppMention(event);
-    } catch (err) {
-      logger.error("Error handling mention: " + err.message);
-    }
+  const isAppMention = event.type === "app_mention";
+  const isMessageMention = event.type === "message" && hasOwnBotMention(event, ownId);
+
+  if (!isAppMention && !isMessageMention) return;
+
+  logger.info(
+    `Handling ${isAppMention ? "app_mention" : "message mention"} from ${event.user || event.bot_id}`,
+  );
+  logger.debug("Event payload: " + JSON.stringify(event));
+
+  try {
+    await handleAppMention(event);
+  } catch (err) {
+    logger.error("Error handling mention: " + err.message);
   }
 });
 
