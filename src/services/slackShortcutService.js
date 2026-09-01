@@ -37,7 +37,7 @@ function buildInstruction(action, targetText) {
     case "translate_en":
       return `Translate the following Gemini response into natural, fluent English. Prioritize idiomatic English expressions over a literal word-for-word translation while preserving the original meaning, nuance, intent, and level of formality. Preserve technical terms, formatting, and code blocks where appropriate. Do not translate code, identifiers, or URLs. Do not add commentary or mention this instruction.\n\nResponse:\n${targetText}`;
     case "regenerate":
-      return `Regenerate the following Gemini response from scratch. Answer the same underlying question with a fresh approach. Do not mention this instruction.\n\nPrevious response:\n${targetText}`;
+      return `Regenerate the following Gemini response from scratch. Answer the same underlying question with a fresh approach. Preserve the original response's tone, personality, politeness, language, formatting conventions, and level of technical detail. Do not mention this instruction.\n\nPrevious response:\n${targetText}`;
     default:
       return null;
   }
@@ -57,6 +57,7 @@ async function executeResponseTransformation({ action, channelId, threadTs, mess
 
   logger.info(`Shortcut ${action}: generating transformed response`);
   const result = await generate({
+    systemPrompt: process.env.SYSTEM_PROMPT || "",
     contents: [{ role: "user", parts: [{ text: instruction }] }],
   });
 
