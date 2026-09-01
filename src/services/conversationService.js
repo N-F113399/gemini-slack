@@ -9,6 +9,7 @@ import { resolveSlackFiles } from "./content/slackFileResolver.js";
 import { processImageContent } from "./content/processors/imageProcessor.js";
 import { processTextContent, isSupportedTextMimeType } from "./content/processors/textProcessor.js";
 import { processPdfContent, isSupportedPdfMimeType } from "./content/processors/pdfProcessor.js";
+import { processCsvContent, isSupportedCsvMimeType } from "./content/processors/csvProcessor.js";
 import { adaptContentsToGeminiParts } from "./content/adapters/geminiContentAdapter.js";
 import { ContentError, CONTENT_ERROR_CODES } from "./content/contentErrors.js";
 
@@ -18,7 +19,10 @@ const DEFAULT_MAX_USER_MESSAGE_LENGTH = 4000;
 function getSupportedFiles(files = []) {
   return files.filter(file => {
     const mimeType = (file.mimetype || file.mime_type || "").toLowerCase();
-    return mimeType.startsWith("image/") || isSupportedTextMimeType(mimeType) || isSupportedPdfMimeType(mimeType);
+    return mimeType.startsWith("image/")
+      || isSupportedTextMimeType(mimeType)
+      || isSupportedPdfMimeType(mimeType)
+      || isSupportedCsvMimeType(mimeType);
   });
 }
 
@@ -31,6 +35,7 @@ function processResolvedContent(content) {
   if (mimeType.startsWith("image/")) return processImageContent(content);
   if (isSupportedTextMimeType(mimeType)) return processTextContent(content);
   if (isSupportedPdfMimeType(mimeType)) return processPdfContent(content);
+  if (isSupportedCsvMimeType(mimeType)) return processCsvContent(content);
   throw new ContentError(CONTENT_ERROR_CODES.UNSUPPORTED_MIME_TYPE, `Unsupported attachment MIME type: ${mimeType}`);
 }
 
@@ -76,7 +81,14 @@ export async function handleAppMention(event) {
   }
 
   try {
-    await saveMessage({ channel_id: channelId, thread_ts: threadTs, message_ts: event.ts, user_id: userId, role: "user", text: userMessage || "[file attachment]" });
+    await saveMessage({
+      channel_id: channelId,
+      thread_ts: threadTs,
+      message_ts: event.ts,
+      user_id: userId,
+      role: "user",
+      text: userMessage || "[file attachment]",
+    });
     logger.debug("💾 incoming message saved to DB");
   } catch (err) {
     logger.error("Failed to save incoming user message: " + err.message);
@@ -84,11 +96,15 @@ export async function handleAppMention(event) {
 
   const historyLimitEnv = Number(process.env.HISTORY_MAX);
   const historyLimit = Number.isFinite(historyLimitEnv) && historyLimitEnv > 0 ? historyLimitEnv : DEFAULT_HISTORY_LIMIT;
-  if (!Number.isFinite(historyLimitEnv) || historyLimitEnv <= 0) logger.info(`historyLimit is invalid; defaulting to ${historyLimit}`);
 
   let context = { summary: null, summaryMessageCount: 0, recentMessages: [] };
   try {
-    context = await buildContext({ channel_id: channelId, thread_ts: threadTs, current_message_ts: event.ts, recentLimit: historyLimit });
+    context = await buildContext({
+      channel_id: channelId,
+      thread_ts: threadTs,
+      current_message_ts: event.ts,
+      recentLimit: historyLimit,
+    });
     logger.info(`🔎 Retrieved context: summary=${Boolean(context.summary)} recentMessages=${context.recentMessages.length}`);
     logger.debug("🧾 Context messages:", JSON.stringify(context.recentMessages, null, 2));
   } catch (err) {
@@ -107,7 +123,9 @@ export async function handleAppMention(event) {
       inputParts = adaptContentsToGeminiParts(processedContents);
       logger.info(`📎 Prepared ${processedContents.length} attachment(s) for Gemini`);
     } catch (err) {
-      const message = err instanceof ContentError ? `添付ファイルを処理できませんでした: ${err.message}` : "添付ファイルの処理中にエラーが発生しました。";
+      const message = err instanceof ContentError
+        ? `添付ファイルを処理できませんでした: ${err.message}`
+        : "添付ファイルの処理中にエラーが発生しました。";
       logger.error(`Failed to process attachments: ${err.message}`);
       await sendSlackMessage(channelId, threadTs, message);
       return;
@@ -123,7 +141,13 @@ export async function handleAppMention(event) {
   }
 
   const systemPrompt = process.env.SYSTEM_PROMPT || "";
-  const contents = buildPrompt({ systemPrompt, history: context.recentMessages, summary: context.summary, userMessage: userMessage || "添付したファイルを確認してください。", inputParts });
+  const contents = buildPrompt({
+    systemPrompt,
+    history: context.recentMessages,
+    summary: context.summary,
+    userMessage: userMessage || "添付したファイルを確認してください。",
+    inputParts,
+  });
 
   let result;
   try {
@@ -136,17 +160,21 @@ export async function handleAppMention(event) {
 
   const cleanReply = result.text || "（応答がありませんでした）";
   const displayReply = `${cleanReply}\n\n---\n使用モデル: ${result.model}`;
-  logger.info("💬 Gemini reply retrieved");
-  logger.info(`💬 Gemini reply model: ${result.model}`);
-  logger.debug("💬 reply text:", displayReply);
 
   try {
     const slackResp = await sendSlackMessage(channelId, threadTs, displayReply);
     if (slackResp && slackResp.ok) {
       const botTs = slackResp.ts || (slackResp.message && slackResp.message.ts) || String(Date.now() / 1000);
-      await saveMessage({ channel_id: channelId, thread_ts: threadTs || botTs, message_ts: botTs, user_id: null, role: "bot", text: cleanReply });
-      logger.debug(`💾 saved bot message to DB (ts=${botTs})`);
-      updateSummaryIfNeeded({ channel_id: channelId, thread_ts: threadTs }).catch((err) => logger.error(`Detached summary update failed: ${err.message}`));
+      await saveMessage({
+        channel_id: channelId,
+        thread_ts: threadTs || botTs,
+        message_ts: botTs,
+        user_id: null,
+        role: "bot",
+        text: cleanReply,
+      });
+      updateSummaryIfNeeded({ channel_id: channelId, thread_ts: threadTs })
+        .catch((err) => logger.error(`Detached summary update failed: ${err.message}`));
     } else {
       logger.error("Slack post returned not-ok when trying to send Gemini reply");
     }
