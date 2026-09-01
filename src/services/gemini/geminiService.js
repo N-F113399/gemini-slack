@@ -1,7 +1,6 @@
 import logger from "../../utils/logger.js";
 import { generateContent } from "./geminiClient.js";
 import { usageTracker as defaultUsageTracker } from "../usage/usageTracker.js";
-import { calculateUsageCost } from "../usage/costCalculator.js";
 
 const DEFAULT_MODEL = "gemini-flash-lite-latest";
 const DEFAULT_RETRY_LIMIT = 5;
@@ -78,7 +77,6 @@ export async function generate({ contents, systemPrompt, usageTracker = defaultU
       const inputTokens = usageMetadata?.promptTokenCount ?? usageMetadata?.inputTokenCount ?? 0;
       const outputTokens = usageMetadata?.candidatesTokenCount ?? usageMetadata?.outputTokenCount ?? 0;
       const totalTokens = usageMetadata?.totalTokenCount ?? (inputTokens + outputTokens);
-      const estimatedCostUsd = calculateUsageCost({ provider: "gemini", service: "gemini", model: responseModel, inputTokens, outputTokens, totalTokens });
       usageTracker.record({
         provider: "gemini",
         service: "gemini",
@@ -88,7 +86,6 @@ export async function generate({ contents, systemPrompt, usageTracker = defaultU
         inputTokens,
         outputTokens,
         totalTokens,
-        estimatedCostUsd,
         metadata: { model: responseModel },
       });
       break;
