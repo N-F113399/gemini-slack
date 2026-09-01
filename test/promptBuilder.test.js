@@ -20,7 +20,23 @@ test("buildPrompt builds system prompt, history, and current user message", () =
   ]);
 });
 
-test("buildPrompt handles an empty history", () => {
+test("buildPrompt includes conversation summary before recent history", () => {
+  const contents = buildPrompt({
+    systemPrompt: "system",
+    summary: "以前の会話では、認証機能について検討した。",
+    history: [{ role: "user", text: "続きの質問" }],
+    userMessage: "現在の質問",
+  });
+
+  assert.deepEqual(contents, [
+    { parts: [{ text: "system" }] },
+    { parts: [{ text: "Conversation Summary:\n以前の会話では、認証機能について検討した。" }] },
+    { parts: [{ text: "User: 続きの質問" }] },
+    { parts: [{ text: "User: 現在の質問" }] },
+  ]);
+});
+
+test("buildPrompt handles an empty history and no summary", () => {
   const contents = buildPrompt({
     systemPrompt: "system",
     history: [],
@@ -40,6 +56,7 @@ test("buildPrompt does not mutate history", () => {
   buildPrompt({
     systemPrompt: "system",
     history,
+    summary: "summary",
     userMessage: "world",
   });
 
