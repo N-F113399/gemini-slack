@@ -1,5 +1,6 @@
 import express from "express";
 import { getUsageReport } from "../services/usage/usageReportService.js";
+import { getSearchQualityReport } from "../services/usage/searchQualityReportService.js";
 
 const router = express.Router();
 
@@ -20,6 +21,20 @@ router.get("/", async (req, res) => {
     return res.status(200).json(report);
   } catch (error) {
     return res.status(400).json({ error: error.message || "Failed to build usage report" });
+  }
+});
+
+router.get("/quality", async (req, res) => {
+  if (!isAuthorized(req)) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const report = await getSearchQualityReport({
+      from: req.query.from || null,
+      to: req.query.to || null,
+    });
+    return res.status(200).json(report);
+  } catch (error) {
+    return res.status(400).json({ error: error.message || "Failed to build search quality report" });
   }
 });
 
