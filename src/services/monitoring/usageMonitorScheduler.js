@@ -1,8 +1,4 @@
 import logger from "../../utils/logger.js";
-import { getUsageReport } from "../usage/usageReportService.js";
-import { getFreeQuotaReport } from "../usage/freeQuotaReportService.js";
-import { evaluateUsageAlerts } from "./usageMonitor.js";
-import { notifyUsageAlerts } from "./alertNotifier.js";
 
 const DEFAULT_INTERVAL_MS = 300_000;
 
@@ -11,12 +7,32 @@ function readIntervalMs() {
   return Number.isFinite(value) && value > 0 ? value : DEFAULT_INTERVAL_MS;
 }
 
+async function defaultGetReport(options) {
+  const { getUsageReport } = await import("../usage/usageReportService.js");
+  return getUsageReport(options);
+}
+
+async function defaultGetQuotaReport(options) {
+  const { getFreeQuotaReport } = await import("../usage/freeQuotaReportService.js");
+  return getFreeQuotaReport(options);
+}
+
+async function defaultEvaluate(options) {
+  const { evaluateUsageAlerts } = await import("./usageMonitor.js");
+  return evaluateUsageAlerts(options);
+}
+
+async function defaultNotify(alerts) {
+  const { notifyUsageAlerts } = await import("./alertNotifier.js");
+  return notifyUsageAlerts(alerts);
+}
+
 export class UsageMonitorScheduler {
   constructor({ getReport, getQuotaReport, evaluate, notify } = {}) {
-    this.getReport = getReport ?? getUsageReport;
-    this.getQuotaReport = getQuotaReport ?? getFreeQuotaReport;
-    this.evaluate = evaluate ?? evaluateUsageAlerts;
-    this.notify = notify ?? notifyUsageAlerts;
+    this.getReport = getReport ?? defaultGetReport;
+    this.getQuotaReport = getQuotaReport ?? defaultGetQuotaReport;
+    this.evaluate = evaluate ?? defaultEvaluate;
+    this.notify = notify ?? defaultNotify;
     this.timer = null;
     this.running = false;
   }
@@ -29,7 +45,7 @@ export class UsageMonitorScheduler {
         this.getReport({ to: now }),
         this.getQuotaReport({ now }),
       ]);
-      const alerts = this.evaluate({ summary: report.byProvider, quotas: quotaReport.quotas });
+      const alerts = await this.evaluate({ summary: report.byProvider, quotas: quotaReport.quotas });
       if (alerts.length > 0) await this.notify(alerts);
       return { skipped: false, alerts: alerts.length };
     } catch (error) {
