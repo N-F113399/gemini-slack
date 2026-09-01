@@ -5,6 +5,7 @@ const DEFAULTS = Object.freeze({
   maxUrlResponseSize: 10 * 1024 * 1024,
   urlTimeoutMs: 10_000,
   maxTextLength: 200_000,
+  maxCsvRows: 10_000,
 });
 
 function positiveInteger(value, fallback) {
@@ -20,6 +21,7 @@ export function getContentLimits() {
     maxUrlResponseSize: positiveInteger(process.env.MAX_URL_RESPONSE_SIZE, DEFAULTS.maxUrlResponseSize),
     urlTimeoutMs: positiveInteger(process.env.URL_TIMEOUT_MS, DEFAULTS.urlTimeoutMs),
     maxTextLength: positiveInteger(process.env.MAX_CONTENT_TEXT_LENGTH, DEFAULTS.maxTextLength),
+    maxCsvRows: positiveInteger(process.env.MAX_CSV_ROWS, DEFAULTS.maxCsvRows),
   });
 }
 
