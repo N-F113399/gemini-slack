@@ -3,7 +3,11 @@
  * Keeping prompt construction separate makes future context changes (such as
  * summaries or files) independent from the Gemini HTTP client.
  */
-export function buildPrompt({ systemPrompt, history = [], summary = null, userMessage }) {
+export function buildPrompt({ systemPrompt, history = [], summary = null, userMessage, inputParts = [] }) {
+  if (!Array.isArray(inputParts)) {
+    throw new TypeError("inputParts must be an array");
+  }
+
   const historyParts = history.map(reply => {
     const who = reply.role === "user" ? "User" : "Bot";
     return { parts: [{ text: `${who}: ${reply.text}` }] };
@@ -17,6 +21,6 @@ export function buildPrompt({ systemPrompt, history = [], summary = null, userMe
     { parts: [{ text: systemPrompt }] },
     ...summaryParts,
     ...historyParts,
-    { parts: [{ text: `User: ${userMessage}` }] },
+    { parts: [{ text: `User: ${userMessage}` }, ...inputParts] },
   ];
 }
