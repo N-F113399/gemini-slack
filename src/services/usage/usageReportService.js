@@ -29,7 +29,6 @@ function aggregate(rows) {
         totalTokens: 0,
         credits: 0,
         searchRequests: 0,
-        estimatedCostUsd: 0,
         latencyMsTotal: 0,
         latencySamples: 0,
       };
@@ -42,7 +41,6 @@ function aggregate(rows) {
     item.totalTokens += Number(row.total_tokens) || 0;
     item.credits += Number(row.credits) || 0;
     item.searchRequests += Number(row.request_count) || 0;
-    item.estimatedCostUsd += Number(row.estimated_cost_usd) || 0;
     if (row.latency_ms !== null && row.latency_ms !== undefined) {
       item.latencyMsTotal += Number(row.latency_ms) || 0;
       item.latencySamples += 1;
@@ -62,7 +60,7 @@ export async function getUsageReport({ from = null, to = null } = {}) {
   const range = normalizeRange({ from, to });
   const { data, error } = await supabase
     .from("usage_events")
-    .select("occurred_at,provider,service,operation,success,latency_ms,input_tokens,output_tokens,total_tokens,credits,request_count,estimated_cost_usd")
+    .select("occurred_at,provider,service,operation,success,latency_ms,input_tokens,output_tokens,total_tokens,credits,request_count")
     .gte("occurred_at", range.start.toISOString())
     .lte("occurred_at", range.end.toISOString())
     .order("occurred_at", { ascending: true });
@@ -79,18 +77,8 @@ export async function getUsageReport({ from = null, to = null } = {}) {
     acc.totalTokens += item.totalTokens;
     acc.credits += item.credits;
     acc.searchRequests += item.searchRequests;
-    acc.estimatedCostUsd += item.estimatedCostUsd;
     return acc;
-  }, {
-    requests: 0,
-    failures: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
-    credits: 0,
-    searchRequests: 0,
-    estimatedCostUsd: 0,
-  });
+  }, { requests: 0, failures: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, credits: 0, searchRequests: 0 });
 
   totals.failureRate = totals.requests > 0 ? totals.failures / totals.requests : 0;
 
