@@ -1,5 +1,6 @@
 import { REPRESENTATION_TYPES } from "../contentTypes.js";
 import { CONTENT_ERROR_CODES, ContentError } from "../contentErrors.js";
+import { buildExternalContentPart } from "../../security/externalContentGuard.js";
 
 const DIRECT_BINARY_MIME_TYPES = new Set([
   "image/png",
@@ -12,19 +13,23 @@ const DIRECT_BINARY_MIME_TYPES = new Set([
 
 function selectGeminiRepresentation(content) {
   const representations = content?.representations || [];
+  const source = content?.source?.type || content?.kind || "external content";
 
   const structured = representations.find(
     representation => representation.type === REPRESENTATION_TYPES.STRUCTURED && representation.rows,
   );
   if (structured) {
-    return { text: JSON.stringify({ schema: structured.schema, rows: structured.rows }) };
+    return buildExternalContentPart(
+      JSON.stringify({ schema: structured.schema, rows: structured.rows }),
+      { source },
+    );
   }
 
   const text = representations.find(
     representation => representation.type === REPRESENTATION_TYPES.TEXT && typeof representation.text === "string",
   );
   if (text) {
-    return { text: text.text };
+    return buildExternalContentPart(text.text, { source });
   }
 
   const binary = representations.find(
