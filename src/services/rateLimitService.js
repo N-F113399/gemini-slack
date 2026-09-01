@@ -66,17 +66,13 @@ export class InMemoryRateLimiter {
 
     return {
       allowed: true,
-      key: normalizedKey,
-      count: bucket.count,
       remaining: Math.max(0, this.maxRequests - bucket.count),
-      limit: this.maxRequests,
-      windowMs: this.windowMs,
       retryAfterMs: 0,
     };
   }
 
   reset(key) {
-    this.buckets.delete(key);
+    return this.buckets.delete(key);
   }
 
   clear() {
