@@ -1,0 +1,217 @@
+version: 2
+document:
+  title: "Gemini Slack Feature Design"
+  description: "Feature-level implementation design and roadmap. Structured for future spreadsheet conversion."
+  repository: "N-F113399/gemini-slack"
+  branch: "phase4/content-foundation"
+  generated_at: "2026-09-01"
+  directory_policy:
+    design: "機能・DB・API・データ構造などの設計書"
+    docs: "Architecture・開発・運用・Troubleshootingなどの技術ドキュメント"
+    readme: "リポジトリ入口。概要・導入・使い方・現状・ロードマップ"
+
+spreadsheet_keys:
+  - phase
+  - feature_id
+  - feature_name
+  - status
+  - purpose
+  - inputs
+  - processing
+  - outputs
+  - errors
+  - configuration
+  - implementation_files
+  - test_files
+  - notes
+
+phases:
+  - phase: 0
+    name: "現状テスト追加"
+    status: verified
+    features:
+      - feature_id: "P0-F01"
+        feature_name: "既存機能の回帰テスト"
+        status: verified
+        purpose: "主要な既存機能を単体テストで保護する。"
+        inputs: ["Slack event", "service mocks"]
+        processing: ["success/error/boundary casesを固定"]
+        outputs: ["regression test suite"]
+        errors: ["assertion failure"]
+        configuration: []
+        implementation_files: []
+        test_files: ["test/*.test.js"]
+        notes: "後続Phaseの安全なリファクタリング基盤。"
+
+  - phase: 1
+    name: "責務分離"
+    status: implemented
+    features:
+      - feature_id: "P1-F01"
+        feature_name: "Slack / Conversation / Gemini責務分離"
+        status: implemented
+        purpose: "Slack境界、会話Orchestration、Prompt、Gemini HTTP、DBを分離する。"
+        inputs: ["Slack events", "messages", "prompt context"]
+        processing: ["boundary/service separation", "common Slack response handling"]
+        outputs: ["modular application services"]
+        errors: ["Slack API error", "DB error", "Gemini API error"]
+        configuration: ["GEMINI_API_KEY", "SLACK_BOT_TOKEN", "SUPABASE_URL", "SUPABASE_KEY"]
+        implementation_files:
+          - "src/routes/slackEvent.js"
+          - "src/routes/slackShortcut.js"
+          - "src/services/conversationService.js"
+          - "src/services/gemini/geminiService.js"
+          - "src/services/gemini/geminiClient.js"
+          - "src/services/gemini/promptBuilder.js"
+          - "src/services/messageStore.js"
+          - "src/services/db.js"
+        test_files: ["test/*"]
+        notes: "External API固有形式はApplication/Domainへ直接漏らさない。"
+
+  - phase: 2
+    name: "コンテキスト改善"
+    status: implemented
+    features:
+      - feature_id: "P2-F01"
+        feature_name: "Thread Context / Summary"
+        status: implemented
+        purpose: "Thread単位の履歴とConversation SummaryをGeminiへ統合する。"
+        inputs: ["channel_id", "thread_ts", "recent messages", "summary"]
+        processing: ["thread scoped retrieval", "summary update", "prompt ordering"]
+        outputs: ["context-aware Gemini prompt"]
+        errors: ["context retrieval failure", "summary generation failure"]
+        configuration: ["HISTORY_MAX", "summary settings"]
+        implementation_files: ["src/services/contextService.js", "src/services/conversationSummaryService.js", "src/services/gemini/promptBuilder.js"]
+        test_files: ["test/*context*.test.js", "test/*summary*.test.js"]
+        notes: "Summaryと直近履歴を併用。"
+
+  - phase: 3
+    name: "Slack操作性"
+    status: implemented
+    features:
+      - feature_id: "P3-F01"
+        feature_name: "Message Shortcuts"
+        status: implemented
+        purpose: "既存回答のdetail / concise / summarize / 英訳 / rewriteを提供する。"
+        inputs: ["selected Slack message"]
+        processing: ["callback identification", "source message retrieval", "Gemini transformation"]
+        outputs: ["transformed Slack response"]
+        errors: ["invalid callback", "generation failure"]
+        configuration: []
+        implementation_files: ["src/services/slackShortcutService.js", "src/routes/slackShortcut.js"]
+        test_files: ["test/slackShortcutService.test.js"]
+        notes: "Slack側のShortcut数制約を考慮し5機能に集約。regenerate / 日本語translateは個別Shortcutにしない。"
+
+  - phase: 4
+    name: "Multimodal / External Content"
+    status: implemented
+    features:
+      - feature_id: "P4-F01"
+        feature_name: "Content Domain Model"
+        status: implemented
+        purpose: "入力をContent + Representation + Metadataで共通化する。"
+        inputs: ["text", "file", "remote content"]
+        processing: ["source normalization", "representation selection"]
+        outputs: ["normalized Content"]
+        errors: ["ContentError", "unsupported representation"]
+        configuration: ["content limits"]
+        implementation_files: ["src/services/content/contentTypes.js", "src/services/content/contentErrors.js", "src/services/content/adapters/geminiContentAdapter.js"]
+        test_files: ["test/*content*.test.js"]
+        notes: "将来のDrive/Notion/GitHub等のResolver追加を想定。"
+
+      - feature_id: "P4-F02"
+        feature_name: "Image / PDF / Text / CSV / URL"
+        status: implemented
+        purpose: "主要な外部Contentを安全に取得・解析しGeminiへ渡す。"
+        inputs: ["Slack files", "HTTP/HTTPS URLs"]
+        processing: ["resolver", "MIME validation", "processor", "Gemini adapter"]
+        outputs: ["Gemini input parts"]
+        errors: ["download failure", "size limit", "unsupported MIME", "SSRF rejection"]
+        configuration: ["MAX_SLACK_FILE_SIZE", "MAX_URL_RESPONSE_SIZE", "MAX_CSV_ROWS", "MAX_CONTENT_TEXT_LENGTH"]
+        implementation_files: ["src/services/content/*"]
+        test_files: ["test/slackFileResolver.test.js", "test/*content*.test.js"]
+        notes: "URLはSSRF対策とredirect再検証を行う。"
+
+  - phase: 5
+    name: "Web Search"
+    status: implemented_operational_tuning
+    features:
+      - feature_id: "P5-F01"
+        feature_name: "Multi-provider Search"
+        status: implemented
+        purpose: "Tavily / Exa / You.comを共通SearchProvider interfaceで利用する。"
+        inputs: ["search query"]
+        processing: ["search decision", "provider routing", "fallback", "limit enforcement"]
+        outputs: ["normalized SearchResponse"]
+        errors: ["provider error", "quota", "auth", "invalid request"]
+        configuration: ["TAVILY_API_KEY", "EXA_API_KEY", "YDC_API_KEY", "SEARCH_PROVIDER_ORDER", "SEARCH_MAX_PROVIDER_ATTEMPTS"]
+        implementation_files: ["src/services/search/*"]
+        test_files: ["test/*Provider.test.js", "test/searchRouter.test.js", "test/searchIntegration.test.js"]
+        notes: "APIキー未設定Providerは候補から除外。Braveは対象外。"
+
+      - feature_id: "P5-F02"
+        feature_name: "Evidence / Sources"
+        status: implemented
+        purpose: "検索結果をEvidenceとして選択し、Gemini ContextとSlack Sourcesへ統一的に利用する。"
+        inputs: ["SearchResponse"]
+        processing: ["URL dedupe", "ranking", "quality/freshness evaluation", "evidence selection"]
+        outputs: ["Gemini search context", "Slack source links"]
+        errors: ["empty search response"]
+        configuration: ["SEARCH_MAX_RESULTS"]
+        implementation_files: ["src/services/search/evidenceSelector.js", "src/services/search/searchContextBuilder.js", "src/services/conversationService.js"]
+        test_files: ["test/evidenceSelector.test.js", "test/searchSourcesDisplay.test.js", "test/searchIntegration.test.js"]
+        notes: "外部検索結果はuntrusted dataとして扱う。"
+
+  - phase: 6
+    name: "Operations"
+    status: partial
+    features:
+      - feature_id: "P6-F01"
+        feature_name: "Rate Limit"
+        status: implemented
+        purpose: "Slack経由の連打によるAPI過剰消費を防止する。"
+        inputs: ["user id"]
+        processing: ["fixed window in-memory counting", "retry-after calculation"]
+        outputs: ["allow or rate-limit error"]
+        errors: ["RATE_LIMIT_EXCEEDED"]
+        configuration: ["RATE_LIMIT_MAX_REQUESTS", "RATE_LIMIT_WINDOW_MS"]
+        implementation_files: ["src/services/rateLimitService.js", "src/routes/slackEvent.js"]
+        test_files: ["test/rateLimitService.test.js"]
+        notes: "現状は単一プロセス前提。将来Redis等へ差し替え可能。"
+
+      - feature_id: "P6-F02"
+        feature_name: "Usage Tracking / Persistence"
+        status: implemented
+        purpose: "Gemini/Searchのtoken・credit・latency・error等を記録する。"
+        inputs: ["provider usage events"]
+        processing: ["in-memory event tracking", "Supabase persistence", "report aggregation"]
+        outputs: ["usage_events", "usage report"]
+        errors: ["persistence failure"]
+        configuration: ["USAGE_TRACKER_MAX_EVENTS", "USAGE_REPORT_TOKEN"]
+        implementation_files: ["src/services/usage/usageTracker.js", "src/services/usage/usageEventStore.js", "src/services/usage/usageReportService.js", "src/routes/usage.js"]
+        test_files: ["test/usageTracker.test.js", "test/usageEventStore.test.js", "test/usageReportService.test.js"]
+        notes: "原則として生成本文・検索本文はUsage Eventへ保存しない。"
+
+      - feature_id: "P6-F03"
+        feature_name: "Cost / Monitoring / Retention"
+        status: planned
+        purpose: "料金計算、監視・Alert、Usageデータ保持期間を運用可能な状態へ拡張する。"
+        inputs: ["usage events", "provider pricing"]
+        processing: ["cost calculation", "threshold evaluation", "retention policy"]
+        outputs: ["cost report", "alerts", "retention jobs"]
+        errors: ["pricing config error", "monitoring destination failure"]
+        configuration: ["pricing table", "alert thresholds", "retention period"]
+        implementation_files: []
+        test_files: []
+        notes: "次期実装対象。"
+
+future_phases:
+  - phase: 7
+    name: "Quality / Reliability"
+    status: planned
+    features:
+      - "search decision tuning"
+      - "source quality and conflict handling"
+      - "prompt injection hardening"
+      - "hallucination reduction"
+      - "answer quality evaluation"
