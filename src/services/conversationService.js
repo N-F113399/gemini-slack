@@ -11,7 +11,7 @@ import { ContentError } from "./content/contentErrors.js";
 import { SearchService } from "./search/searchService.js";
 import { decideSearch } from "./search/searchDecision.js";
 import { tavilySearchProvider } from "./search/providers/tavilyProvider.js";
-import { buildSearchContext } from "./search/searchContextBuilder.js";
+import { buildSearchContext, buildSearchSources } from "./search/searchContextBuilder.js";
 
 const DEFAULT_HISTORY_LIMIT = 10;
 const DEFAULT_MAX_USER_MESSAGE_LENGTH = 4000;
@@ -90,6 +90,7 @@ export async function handleAppMention(event) {
 
   const searchDecision = decideSearch(userMessage);
   const inputParts = [];
+  let searchSources = [];
 
   if (searchDecision.shouldSearch) {
     try {
@@ -101,6 +102,7 @@ export async function handleAppMention(event) {
       });
       const searchContext = buildSearchContext(searchResponse);
       if (searchContext) inputParts.push({ text: searchContext });
+      searchSources = buildSearchSources(searchResponse, 5);
       logger.info(`🔎 Web search completed: provider=${searchResponse.provider.name} results=${searchResponse.results.length}`);
     } catch (err) {
       logger.error(`Web search failed: ${err.message}`);
@@ -152,7 +154,12 @@ export async function handleAppMention(event) {
   }
 
   const cleanReply = result.text || "（応答がありませんでした）";
-  const displayReply = `${cleanReply}\n\n---\n使用モデル: ${result.model}`;
+  const sourceText = searchSources.length > 0
+    ? `\n\nSources:\n${searchSources
+      .map(source => `[${source.index}] ${source.url ? `<${source.url}|${source.title}>` : source.title}`)
+      .join("\n")}`
+    : "";
+  const displayReply = `${cleanReply}${sourceText}\n\n---\n使用モデル: ${result.model}`;
 
   try {
     const slackResp = await sendSlackMessage(channelId, threadTs, displayReply);
