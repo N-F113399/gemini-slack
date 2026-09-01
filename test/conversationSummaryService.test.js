@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildSummaryPrompt,
   shouldUpdateSummary,
-} from "../src/services/conversationSummaryService.js";
+} from "../src/services/conversationSummaryUtils.js";
 
 test("shouldUpdateSummary triggers the first summary at the threshold", () => {
   assert.equal(shouldUpdateSummary({ messageCount: 20, summarizedCount: 0, triggerMessages: 20, updateInterval: 10 }), true);
