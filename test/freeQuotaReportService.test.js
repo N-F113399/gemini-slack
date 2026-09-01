@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { periodStart } from "../src/services/usage/freeQuotaReportService.js";
+import { periodStart } from "../src/services/usage/freeQuotaPeriod.js";
 
 test("periodStart returns UTC day start", () => {
   const result = periodStart("day", new Date("2026-09-01T13:04:00Z"));
