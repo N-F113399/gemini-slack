@@ -1,8 +1,13 @@
 import fetch from "node-fetch";
 import { SearchProvider } from "../searchProvider.js";
-import { SEARCH_PROVIDER_CAPABILITIES, SEARCH_PROVIDER_NAMES } from "../searchModels.js";
-import { createSearchResult, createSearchResponse } from "../searchModels.js";
-import { SearchProviderError } from "../searchErrors.js";
+import {
+  SEARCH_PROVIDER_CAPABILITIES,
+  SEARCH_PROVIDER_NAMES,
+  SEARCH_QUOTA_TYPES,
+  createSearchResult,
+  createSearchResponse,
+} from "../searchModels.js";
+import { SEARCH_ERROR_CODES, SearchProviderError } from "../searchErrors.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const API_URL = "https://api.tavily.com/search";
@@ -12,13 +17,17 @@ function getTimeoutMs() {
   return Number.isFinite(value) && value > 0 ? value : DEFAULT_TIMEOUT_MS;
 }
 
+function getErrorMessage(data, fallbackStatus) {
+  return data?.detail?.error || data?.error?.message || `Tavily request failed with status ${fallbackStatus}`;
+}
+
 function mapStatus(status) {
-  if (status === 400) return { code: "SEARCH_INVALID_REQUEST", retryable: false, quotaRelated: false };
-  if (status === 401) return { code: "SEARCH_AUTHENTICATION_ERROR", retryable: false, quotaRelated: false };
-  if (status === 429) return { code: "SEARCH_RATE_LIMITED", retryable: true, quotaRelated: false };
-  if (status === 432 || status === 433) return { code: "SEARCH_QUOTA_EXCEEDED", retryable: false, quotaRelated: true };
-  if (status >= 500) return { code: "SEARCH_PROVIDER_ERROR", retryable: true, quotaRelated: false };
-  return { code: "SEARCH_PROVIDER_ERROR", retryable: false, quotaRelated: false };
+  if (status === 400) return SEARCH_ERROR_CODES.INVALID_REQUEST;
+  if (status === 401) return SEARCH_ERROR_CODES.AUTHENTICATION;
+  if (status === 429) return SEARCH_ERROR_CODES.QUOTA_EXCEEDED;
+  if (status === 432 || status === 433) return SEARCH_ERROR_CODES.QUOTA_EXCEEDED;
+  if (status >= 500) return SEARCH_ERROR_CODES.PROVIDER_ERROR;
+  return SEARCH_ERROR_CODES.PROVIDER_ERROR;
 }
 
 function toQueryPayload(query) {
@@ -39,8 +48,14 @@ function toQueryPayload(query) {
   return payload;
 }
 
-function getErrorMessage(data, fallbackStatus) {
-  return data?.detail?.error || data?.error?.message || `Tavily request failed with status ${fallbackStatus}`;
+function createProviderError(code, message, status = null, cause = null) {
+  return new SearchProviderError(code, message, {
+    provider: SEARCH_PROVIDER_NAMES.TAVILY,
+    status,
+    retryable: code === SEARCH_ERROR_CODES.PROVIDER_ERROR || code === SEARCH_ERROR_CODES.TIMEOUT || code === SEARCH_ERROR_CODES.UNAVAILABLE,
+    quotaRelated: code === SEARCH_ERROR_CODES.QUOTA_EXCEEDED,
+    cause,
+  });
 }
 
 export class TavilySearchProvider extends SearchProvider {
@@ -54,13 +69,10 @@ export class TavilySearchProvider extends SearchProvider {
   async search(query) {
     const apiKey = process.env.TAVILY_API_KEY;
     if (!apiKey) {
-      throw new SearchProviderError({
-        code: "SEARCH_AUTHENTICATION_ERROR",
-        provider: this.name,
-        message: "TAVILY_API_KEY is not configured",
-        retryable: false,
-        quotaRelated: false,
-      });
+      throw createProviderError(
+        SEARCH_ERROR_CODES.AUTHENTICATION,
+        "TAVILY_API_KEY is not configured",
+      );
     }
 
     const controller = new AbortController();
@@ -85,30 +97,28 @@ export class TavilySearchProvider extends SearchProvider {
         data = null;
       }
     } catch (error) {
-      const aborted = error?.name === "AbortError";
-      throw new SearchProviderError({
-        code: aborted ? "SEARCH_TIMEOUT" : "SEARCH_NETWORK_ERROR",
-        provider: this.name,
-        message: aborted ? "Tavily request timed out" : error.message,
-        retryable: true,
-        quotaRelated: false,
-        cause: error,
-      });
+      const code = error?.name === "AbortError"
+        ? SEARCH_ERROR_CODES.TIMEOUT
+        : SEARCH_ERROR_CODES.UNAVAILABLE;
+      throw createProviderError(code, error?.name === "AbortError" ? "Tavily request timed out" : error.message, null, error);
     } finally {
       clearTimeout(timeout);
     }
 
     if (!response.ok) {
-      const mapped = mapStatus(response.status);
-      throw new SearchProviderError({
-        ...mapped,
-        provider: this.name,
-        status: response.status,
-        message: getErrorMessage(data, response.status),
-      });
+      const code = mapStatus(response.status);
+      throw createProviderError(code, getErrorMessage(data, response.status), response.status);
     }
 
-    const results = (data?.results || []).map((result, index) => createSearchResult({
+    if (!Array.isArray(data?.results)) {
+      throw createProviderError(
+        SEARCH_ERROR_CODES.INVALID_RESPONSE,
+        "Tavily response does not contain a results array",
+        response.status,
+      );
+    }
+
+    const results = data.results.map((result, index) => createSearchResult({
       id: result.id || `${this.name}:${result.url || index}`,
       source: {
         type: "web",
@@ -122,7 +132,7 @@ export class TavilySearchProvider extends SearchProvider {
         score: typeof result.score === "number" ? result.score : null,
       },
       evidence: {
-        text: result.content || result.raw_content || null,
+        text: result.raw_content || result.content || null,
       },
       media: {
         faviconUrl: result.favicon || null,
@@ -142,7 +152,7 @@ export class TavilySearchProvider extends SearchProvider {
       },
       results,
       usage: {
-        quotaType: "credit",
+        quotaType: SEARCH_QUOTA_TYPES.CREDIT,
         credits: data?.usage?.credits ?? null,
         providerSpecific: {
           responseTime: data?.response_time ?? null,
