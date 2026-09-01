@@ -1,5 +1,7 @@
 import logger from "../../utils/logger.js";
 import { generateContent } from "./geminiClient.js";
+import { usageTracker as defaultUsageTracker } from "../usage/usageTracker.js";
+import { calculateUsageCost } from "../usage/costCalculator.js";
 
 const DEFAULT_MODEL = "gemini-flash-lite-latest";
 const DEFAULT_RETRY_LIMIT = 5;
@@ -25,7 +27,7 @@ function backoffDelay(attemptIndex) {
   return exp + Math.random() * 200;
 }
 
-export async function generate({ contents, systemPrompt }) {
+export async function generate({ contents, systemPrompt, usageTracker = defaultUsageTracker }) {
   const timeoutMsEnv = Number(process.env.GEMINI_TIMEOUT_MS);
   const timeoutMs = Number.isFinite(timeoutMsEnv) && timeoutMsEnv > 0 ? timeoutMsEnv : DEFAULT_TIMEOUT_MS;
   if (!Number.isFinite(timeoutMsEnv) || timeoutMsEnv <= 0) logger.info(`timeoutMs is invalid; defaulting to ${timeoutMs}`);
@@ -53,6 +55,7 @@ export async function generate({ contents, systemPrompt }) {
 
     let res;
     let data;
+    const startedAt = Date.now();
     try {
       const generated = await generateContent({ contents, systemPrompt, modelName: currentModel, timeoutMs });
       res = generated.res;
@@ -60,6 +63,7 @@ export async function generate({ contents, systemPrompt }) {
       if (generated.usageMetadata) usageMetadata = generated.usageMetadata;
     } catch (err) {
       lastErrorMsg = err.message;
+      usageTracker.record({ provider: "gemini", service: "gemini", operation: "generate", success: false, latencyMs: Date.now() - startedAt, metadata: { model: currentModel, errorCode: "GEMINI_CLIENT_ERROR" } });
       logger.warn(`Gemini request threw on model=${currentModel} (${err.name}): ${err.message}`);
       if (index === modelCandidates.length - 1) { failed = true; break; }
       continue;
@@ -71,10 +75,27 @@ export async function generate({ contents, systemPrompt }) {
       replyText = candidateText ? candidateText.replace(/\n\n---\n使用モデル:.*$/s, "").trim() : "（応答がありませんでした）";
       responseModel = data?.modelVersion || currentModel;
       usageMetadata = data?.usageMetadata || usageMetadata;
+      const inputTokens = usageMetadata?.promptTokenCount ?? usageMetadata?.inputTokenCount ?? 0;
+      const outputTokens = usageMetadata?.candidatesTokenCount ?? usageMetadata?.outputTokenCount ?? 0;
+      const totalTokens = usageMetadata?.totalTokenCount ?? (inputTokens + outputTokens);
+      const estimatedCostUsd = calculateUsageCost({ provider: "gemini", service: "gemini", model: responseModel, inputTokens, outputTokens, totalTokens });
+      usageTracker.record({
+        provider: "gemini",
+        service: "gemini",
+        operation: "generate",
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        estimatedCostUsd,
+        metadata: { model: responseModel },
+      });
       break;
     }
 
     lastErrorMsg = data?.error?.message || JSON.stringify(data ?? {});
+    usageTracker.record({ provider: "gemini", service: "gemini", operation: "generate", success: false, latencyMs: Date.now() - startedAt, metadata: { model: currentModel, errorCode: "GEMINI_API_ERROR", status: res.status, retryable: isRetryableError(res, data) } });
     if (!isRetryableError(res, data) || index === modelCandidates.length - 1) { failed = true; break; }
     logger.warn(`Gemini error (status=${res.status}) on model=${currentModel}: ${lastErrorMsg}. Retrying with next model.`);
   }
