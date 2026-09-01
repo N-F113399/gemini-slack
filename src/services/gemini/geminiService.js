@@ -37,6 +37,7 @@ export async function generate({ contents, systemPrompt }) {
 
   let responseModel = modelName;
   let replyText = null;
+  let usageMetadata = null;
   let lastErrorMsg = null;
   let failed = false;
 
@@ -53,7 +54,8 @@ export async function generate({ contents, systemPrompt }) {
     let res;
     let data;
     try {
-      ({ res, data } = await generateContent({ contents, systemPrompt, modelName: currentModel, timeoutMs }));
+      ({ res, data, usageMetadata: currentUsageMetadata } = await generateContent({ contents, systemPrompt, modelName: currentModel, timeoutMs }));
+      if (currentUsageMetadata) usageMetadata = currentUsageMetadata;
     } catch (err) {
       lastErrorMsg = err.message;
       logger.warn(`Gemini request threw on model=${currentModel} (${err.name}): ${err.message}`);
@@ -66,6 +68,7 @@ export async function generate({ contents, systemPrompt }) {
       const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       replyText = candidateText ? candidateText.replace(/\n\n---\n使用モデル:.*$/s, "").trim() : "（応答がありませんでした）";
       responseModel = data?.modelVersion || currentModel;
+      usageMetadata = data?.usageMetadata || usageMetadata;
       break;
     }
 
@@ -79,5 +82,10 @@ export async function generate({ contents, systemPrompt }) {
     error.code = "GEMINI_API_ERROR";
     throw error;
   }
-  return { text: replyText || "（応答がありませんでした）", model: responseModel };
+
+  return {
+    text: replyText || "（応答がありませんでした）",
+    model: responseModel,
+    usage: usageMetadata,
+  };
 }
