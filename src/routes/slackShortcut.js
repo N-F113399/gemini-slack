@@ -4,19 +4,16 @@ import { handleSlackShortcut } from "../services/slackShortcutService.js";
 
 const router = express.Router();
 
-router.post("/", express.urlencoded({ extended: false }), async (req, res) => {
-  try {
-    const result = await handleSlackShortcut(req.body?.payload || req.body || {});
+router.post("/", express.urlencoded({ extended: false }), (req, res) => {
+  const payload = req.body?.payload || req.body || {};
 
-    if (!result.supported) {
-      return res.status(200).json({ ok: false, reason: result.reason });
-    }
+  // Acknowledge the Slack shortcut immediately. Gemini/DB processing can take
+  // longer than Slack's acknowledgement window, so it must not block the ACK.
+  res.status(200).send("");
 
-    return res.status(200).json({ ok: true, action: result.action });
-  } catch (err) {
-    logger.error(`Message shortcut handling failed: ${err.message}`);
-    return res.status(200).json({ ok: false, reason: "internal_error" });
-  }
+  handleSlackShortcut(payload).catch((err) => {
+    logger.error(`Message shortcut handling failed: ${err.stack || err.message}`);
+  });
 });
 
 export default router;
