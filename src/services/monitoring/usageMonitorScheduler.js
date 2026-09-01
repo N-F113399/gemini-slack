@@ -12,11 +12,11 @@ function readIntervalMs() {
 }
 
 export class UsageMonitorScheduler {
-  constructor({ getReport = getUsageReport, getQuotaReport = getFreeQuotaReport, evaluate = evaluateUsageAlerts, notify = notifyUsageAlerts } = {}) {
-    this.getReport = getReport;
-    this.getQuotaReport = getQuotaReport;
-    this.evaluate = evaluate;
-    this.notify = notify;
+  constructor({ getReport, getQuotaReport, evaluate, notify } = {}) {
+    this.getReport = getReport ?? getUsageReport;
+    this.getQuotaReport = getQuotaReport ?? getFreeQuotaReport;
+    this.evaluate = evaluate ?? evaluateUsageAlerts;
+    this.notify = notify ?? notifyUsageAlerts;
     this.timer = null;
     this.running = false;
   }
