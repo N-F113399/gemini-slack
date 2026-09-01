@@ -28,6 +28,7 @@ export function evaluateCitationCoverage(answer, sourceCount) {
   const validCitations = uniqueCitedSourceIds.filter((id) => validSourceIds.has(id));
 
   return {
+    sourceCount,
     citedSourceIds: uniqueCitedSourceIds,
     validCitations,
     invalidCitations,
