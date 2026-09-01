@@ -11,11 +11,35 @@ import {
   buildSummaryPrompt,
 } from "./conversationSummaryUtils.js";
 
-/**
- * Update the conversation summary when enough new messages have accumulated.
- * This function is intentionally non-throwing so summary failures never block
- * the normal Slack response flow.
- */
+async function generateAndSaveSummary({ channel_id, thread_ts, messages, previousSummary = null }) {
+  const summaryPrompt = buildSummaryPrompt({
+    previousSummary: previousSummary?.summary || null,
+    messages,
+  });
+  const contents = buildPrompt({
+    systemPrompt: process.env.SYSTEM_PROMPT || "",
+    history: [],
+    userMessage: summaryPrompt,
+  });
+  const result = await generate({ contents });
+  const summary = (result.text || "").trim();
+
+  if (!summary) {
+    logger.warn(`Summary generation returned empty text for ${channel_id}/${thread_ts}`);
+    return null;
+  }
+
+  const messageCount = previousSummary?.message_count || 0;
+  const saved = await saveSummary({
+    channel_id,
+    thread_ts,
+    summary,
+    message_count: Math.max(messageCount, messages.length),
+  });
+
+  return saved ? { summary, messageCount: Math.max(messageCount, messages.length), result } : null;
+}
+
 export async function updateSummaryIfNeeded({ channel_id, thread_ts }) {
   try {
     const triggerMessages = getPositiveIntegerEnv("SUMMARY_TRIGGER_MESSAGES", DEFAULT_TRIGGER_MESSAGES);
@@ -30,20 +54,12 @@ export async function updateSummaryIfNeeded({ channel_id, thread_ts }) {
     const newMessages = messages.slice(summarizedCount);
     if (newMessages.length === 0) return false;
 
-    const summaryPrompt = buildSummaryPrompt({ previousSummary: existingSummary?.summary || null, messages: newMessages });
-    const contents = buildPrompt({
-      systemPrompt: process.env.SYSTEM_PROMPT || "",
-      history: [],
-      userMessage: summaryPrompt,
+    const saved = await generateAndSaveSummary({
+      channel_id,
+      thread_ts,
+      messages: newMessages,
+      previousSummary: existingSummary,
     });
-    const result = await generate({ contents });
-    const summary = (result.text || "").trim();
-    if (!summary) {
-      logger.warn(`Summary generation returned empty text for ${channel_id}/${thread_ts}`);
-      return false;
-    }
-
-    const saved = await saveSummary({ channel_id, thread_ts, summary, message_count: messageCount });
     if (!saved) return false;
 
     logger.info(`Conversation summary updated: channel=${channel_id} thread=${thread_ts} messages=${messageCount}`);
@@ -52,4 +68,38 @@ export async function updateSummaryIfNeeded({ channel_id, thread_ts }) {
     logger.error(`Conversation summary update failed: ${err.message}`);
     return false;
   }
+}
+
+/**
+ * Explicitly summarize a thread, ignoring the automatic update thresholds.
+ * Existing summaries are incrementally updated with messages that have not
+ * yet been included in the stored message_count.
+ */
+export async function summarizeThread({ channel_id, thread_ts }) {
+  const existingSummary = await getSummary(channel_id, thread_ts);
+  const messages = await getLatestReplies(channel_id, thread_ts, Number.MAX_SAFE_INTEGER);
+
+  if (messages.length === 0) return null;
+
+  const summarizedCount = existingSummary?.message_count || 0;
+  const newMessages = existingSummary ? messages.slice(summarizedCount) : messages;
+
+  if (newMessages.length === 0 && existingSummary?.summary) {
+    return {
+      summary: existingSummary.summary,
+      messageCount: existingSummary.message_count,
+      result: null,
+      reused: true,
+    };
+  }
+
+  const saved = await generateAndSaveSummary({
+    channel_id,
+    thread_ts,
+    messages: newMessages,
+    previousSummary: existingSummary,
+  });
+
+  if (!saved) return null;
+  return { ...saved, reused: false };
 }
