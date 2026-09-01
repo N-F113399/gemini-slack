@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseShortcutPayload } from "../src/services/slackShortcutService.js";
+import { parseShortcutPayload } from "../src/services/slackShortcutParser.js";
 
 test("parseShortcutPayload parses a Slack message shortcut payload", () => {
   const result = parseShortcutPayload(JSON.stringify({
