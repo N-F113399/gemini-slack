@@ -1,5 +1,6 @@
 import { REPRESENTATION_TYPES } from "../contentTypes.js";
 import { CONTENT_ERROR_CODES, ContentError } from "../contentErrors.js";
+import { getContentLimits, truncateContentText } from "../contentLimits.js";
 
 export const SUPPORTED_CSV_MIME_TYPES = Object.freeze([
   "text/csv",
@@ -82,9 +83,19 @@ export function processCsvContent(content) {
   }
 
   const text = Buffer.from(binary.data).toString("utf8");
+  const { maxTextLength } = getContentLimits();
+  if (text.length > maxTextLength) {
+    throw new ContentError(
+      CONTENT_ERROR_CODES.CONTENT_TOO_LARGE,
+      `CSV text exceeds the ${maxTextLength} character limit`,
+      { maxTextLength, actualLength: text.length },
+    );
+  }
+
   const rows = parseCsvRows(text);
   const headers = rows.length > 0 ? rows[0] : [];
   const dataRows = rows.slice(1);
+  const { maxCsvRows = 10_000 } = getContentLimits();
 
   if (headers.length === 0) {
     throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, "CSV header row is required");
@@ -92,11 +103,15 @@ export function processCsvContent(content) {
   if (headers.some(header => !header.trim())) {
     throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, "CSV contains an empty header");
   }
+  if (dataRows.length > maxCsvRows) {
+    throw new ContentError(CONTENT_ERROR_CODES.CONTENT_TOO_LARGE, `CSV exceeds the ${maxCsvRows} row limit`, { maxCsvRows });
+  }
   if (dataRows.some(row => row.length !== headers.length)) {
     throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, "CSV row has a different number of columns");
   }
 
   const structuredRows = dataRows.map(row => Object.fromEntries(headers.map((header, index) => [header, row[index]])));
+  const normalized = truncateContentText(text, maxTextLength);
 
   return {
     ...content,
@@ -105,7 +120,9 @@ export function processCsvContent(content) {
       {
         type: REPRESENTATION_TYPES.TEXT,
         mimeType: "text/csv",
-        text,
+        text: normalized.text,
+        truncated: normalized.truncated,
+        originalLength: normalized.originalLength,
       },
       {
         type: REPRESENTATION_TYPES.STRUCTURED,
