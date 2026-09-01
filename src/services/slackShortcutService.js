@@ -39,6 +39,8 @@ function buildInstruction(action, targetText) {
       return `Translate the following Gemini response into natural, fluent English. Prioritize idiomatic English expressions over a literal word-for-word translation while preserving the original meaning, nuance, intent, and level of formality. Preserve technical terms, formatting, and code blocks where appropriate. Do not translate code, identifiers, or URLs. Do not add commentary or mention this instruction.\n\nResponse:\n${targetText}`;
     case "regenerate":
       return `Regenerate the following Gemini response from scratch. Answer the same underlying question with a fresh approach. Preserve the original response's tone, personality, politeness, language, formatting conventions, and level of technical detail. Do not mention this instruction.\n\nPrevious response:\n${targetText}`;
+    case "rewrite":
+      return `Rewrite the following Gemini response to improve its wording, structure, and readability while preserving its original meaning, facts, intent, language, tone, and level of detail. Do not add new information or omit important information. Preserve code blocks, identifiers, URLs, technical notation, and formatting where appropriate. Do not mention this instruction.\n\nResponse:\n${targetText}`;
     default:
       return null;
   }
@@ -84,7 +86,6 @@ async function executeResponseTransformation({ action, channelId, threadTs, mess
 async function executeSummarize({ channelId, threadTs }) {
   logger.info(`Shortcut summarize: updating summary channel=${channelId} thread=${threadTs}`);
   const result = await summarizeThread({ channel_id: channelId, thread_ts: threadTs });
-
   if (!result) return { executed: false, reason: "summary_failed" };
 
   const label = result.reused ? "Current conversation summary" : "Conversation summary";
@@ -108,7 +109,7 @@ export async function handleSlackShortcut(payload) {
     return { ...parsed, supported: true, ...result };
   }
 
-  if (["detail", "concise", "translate", "translate_en", "regenerate"].includes(parsed.action)) {
+  if (["detail", "concise", "translate", "translate_en", "regenerate", "rewrite"].includes(parsed.action)) {
     const result = await executeResponseTransformation(parsed);
     return { ...parsed, supported: true, ...result };
   }
