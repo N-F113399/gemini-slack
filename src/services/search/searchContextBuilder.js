@@ -1,4 +1,5 @@
 import { buildSourceGuidance } from "./searchSourceEvaluator.js";
+import { wrapExternalContent } from "../security/externalContentGuard.js";
 
 export function buildSearchContext(response, { maxResults = 5 } = {}) {
   const results = Array.isArray(response?.results) ? response.results : [];
@@ -28,7 +29,7 @@ export function buildSearchContext(response, { maxResults = 5 } = {}) {
       `URL: ${source.url || ""}`,
       `Domain: ${source.domain || ""}`,
       `Source quality score: ${item.qualityScore.toFixed(2)}`,
-      evidenceText ? `Evidence:\n${evidenceText}` : null,
+      evidenceText ? wrapExternalContent(evidenceText, { source: source.url || source.domain || "web search" }) : null,
     ].filter(Boolean).join("\n");
   });
 
