@@ -14,6 +14,8 @@ import { selectEvidence, buildSelectedEvidenceText } from "./search/evidenceSele
 import { wrapExternalContent } from "./security/externalContentGuard.js";
 import { buildAttributionInstruction } from "./search/evidenceAttribution.js";
 import { evaluateCitationCoverage } from "./search/citationCoverage.js";
+import { evaluateSearchSources, detectSourceConflicts } from "./search/searchSourceEvaluator.js";
+import { scoreSearchAnswer } from "./search/searchQualityScorer.js";
 import { usageTracker } from "./usage/usageTracker.js";
 
 const DEFAULT_HISTORY_LIMIT = 10;
@@ -93,6 +95,8 @@ export async function handleAppMention(event) {
   const searchDecision = decideSearch(userMessage);
   const inputParts = [];
   let searchSources = [];
+  let searchSourceQuality = null;
+  let searchSourceConflicts = [];
 
   if (searchDecision.shouldSearch) {
     const searchService = createConfiguredSearchService();
@@ -143,6 +147,16 @@ export async function handleAppMention(event) {
         url: item.source?.url || null,
         provider: item.source?.provider || null,
         type: item.source?.type || null,
+      }));
+      const evaluatedSources = evaluateSearchSources(selection.items.map(item => item.result));
+      searchSourceConflicts = detectSourceConflicts(evaluatedSources);
+      searchSourceQuality = evaluatedSources.map(item => ({
+        index: item.index + 1,
+        sourceId: `S${item.index + 1}`,
+        domain: item.domain,
+        qualityScore: item.qualityScore,
+        authorityScore: item.authorityScore,
+        ageDays: item.ageDays,
       }));
       logger.info(`🔎 Web search completed: provider=${searchResponse.provider.name} results=${searchResponse.results.length} selected=${selection.resultCount}`);
     } catch (err) {
@@ -207,6 +221,13 @@ export async function handleAppMention(event) {
     const citationCoverage = searchSources.length > 0
       ? evaluateCitationCoverage(result.text || "", searchSources.length)
       : null;
+    const qualityScore = searchSources.length > 0
+      ? scoreSearchAnswer({
+        citationCoverage,
+        evaluatedSources: searchSourceQuality || [],
+        conflicts: searchSourceConflicts,
+      })
+      : null;
     usageTracker.record({
       provider: "gemini",
       service: "gemini",
@@ -219,10 +240,16 @@ export async function handleAppMention(event) {
       metadata: {
         model: result.model,
         citationCoverage,
+        sourceQuality: searchSourceQuality,
+        sourceConflicts: searchSourceConflicts,
+        qualityScore,
       },
     });
     if (citationCoverage?.hasInvalidCitation) {
       logger.warn(`Citation evaluation found invalid source IDs: ${citationCoverage.invalidCitations.join(", ")}`);
+    }
+    if (qualityScore?.lowQuality) {
+      logger.warn(`Search answer quality score is low: score=${qualityScore.score} flags=${qualityScore.flags.join(",")}`);
     }
   } catch (err) {
     usageTracker.record({
