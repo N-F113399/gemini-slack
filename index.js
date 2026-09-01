@@ -6,6 +6,7 @@ import { checkEnvVars } from "./src/config/envCheck.js";
 import { handleError } from "./src/utils/errorHandler.js";
 import slackEventsRouter from "./src/routes/slackEvent.js";
 import slackCommandsRouter from "./src/routes/slackCommand.js";
+import slackShortcutRouter from "./src/routes/slackShortcut.js";
 
 dotenv.config();
 checkEnvVars();
@@ -15,6 +16,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use("/slack/events", slackEventsRouter);
 app.use("/slack/commands", slackCommandsRouter);
+app.use("/slack/shortcuts", slackShortcutRouter);
 
 // グローバルエラーハンドラ
 app.use((err, req, res, next) => {
