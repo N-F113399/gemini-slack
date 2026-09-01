@@ -1,0 +1,22 @@
+phase: 7
+step: 4
+name: evidence-attribution
+status: implemented
+purpose:
+  - "検索結果を回答中の主張と対応付けられるようにする"
+  - "複数Source間の根拠確認を容易にする"
+contracts:
+  source_id_format: "S1, S2, S3, ..."
+  citation_format: "[S1]"
+  rules:
+    - "存在するsourceIdのみ引用する"
+    - "Evidenceにない主張へ引用を捏造しない"
+    - "Source conflictがある場合は両方を明示できるようにする"
+architecture:
+  selection: src/services/search/evidenceSelector.js
+  attribution: src/services/search/evidenceAttribution.js
+  prompt_integration: src/services/conversationService.js
+  display: Slack source list uses the same source IDs
+notes:
+  - "Evidence attribution is guidance and traceability; it is not a proof that a generated claim is factually correct."
+  - "Future phase may add automated citation coverage/evidence entailment evaluation."
