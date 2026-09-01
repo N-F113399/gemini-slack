@@ -3,6 +3,7 @@ import express from "express";
 import fetch from "node-fetch";
 import logger from "../utils/logger.js";
 import { handleAppMention } from "../services/geminiService.js";
+import { rateLimiter, RateLimitError } from "../services/rateLimitService.js";
 
 const router = express.Router();
 
@@ -74,7 +75,6 @@ router.post("/", async (req, res) => {
 
   const { userId: ownBotUserId, botId: ownBotId } = await resolveBotIdentity();
 
-  // Ignore this bot's own messages to prevent response loops.
   if (
     (event.bot_id && ownBotId && event.bot_id === ownBotId) ||
     (event.user && ownBotUserId && event.user === ownBotUserId)
@@ -91,6 +91,30 @@ router.post("/", async (req, res) => {
   const isMessageMention = event.type === "message" && hasOwnBotMention(event, ownBotUserId);
 
   if (!isAppMention && !isMessageMention) return;
+
+  const rateLimitKey = event.user || event.channel || "unknown";
+  try {
+    const result = rateLimiter.check(rateLimitKey);
+    logger.debug(`Rate limit accepted: key=${rateLimitKey} remaining=${result.remaining}`);
+  } catch (err) {
+    if (err instanceof RateLimitError) {
+      const retryAfterSeconds = Math.max(1, Math.ceil(err.retryAfterMs / 1000));
+      logger.warn(`Rate limit exceeded: key=${rateLimitKey} retryAfter=${retryAfterSeconds}s`);
+      try {
+        await import("../services/slackService.js").then(({ sendSlackMessage }) =>
+          sendSlackMessage(
+            event.channel,
+            event.thread_ts || event.ts,
+            `リクエストが多すぎます。${retryAfterSeconds}秒ほど待ってから再度お試しください。`,
+          )
+        );
+      } catch (sendError) {
+        logger.error(`Failed to send rate limit guidance: ${sendError.message}`);
+      }
+      return;
+    }
+    throw err;
+  }
 
   logger.info(
     `Handling ${isAppMention ? "app_mention" : "message mention"} from ${event.user || event.bot_id}`,
