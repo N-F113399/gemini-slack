@@ -1,5 +1,5 @@
 import { createSearchQuery } from "./searchModels.js";
-import { SearchProviderError } from "./searchErrors.js";
+import { SearchProviderError, SEARCH_ERROR_CODES } from "./searchErrors.js";
 
 export class SearchService {
   constructor({ providers = [] } = {}) {
@@ -18,14 +18,18 @@ export class SearchService {
         return await provider.search(query);
       } catch (error) {
         lastError = error;
-        if (!(error instanceof SearchProviderError) || !error.retryable) {
-          if (error instanceof SearchProviderError && error.quotaRelated) continue;
+        if (error instanceof SearchProviderError) {
+          if (error.quotaRelated || error.retryable) continue;
           throw error;
         }
+        throw error;
       }
     }
 
     if (lastError) throw lastError;
-    throw new SearchProviderError("SEARCH_UNAVAILABLE", "No search provider is available");
+    throw new SearchProviderError(
+      SEARCH_ERROR_CODES.UNAVAILABLE,
+      "No search provider is available",
+    );
   }
 }
