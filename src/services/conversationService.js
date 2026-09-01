@@ -5,49 +5,12 @@ import { updateSummaryIfNeeded } from "./conversationSummaryService.js";
 import { sendSlackMessage } from "./slackService.js";
 import { generate } from "./gemini/geminiService.js";
 import { buildPrompt } from "./gemini/promptBuilder.js";
-import { resolveSlackFiles } from "./content/slackFileResolver.js";
-import { resolveUrl, extractUrls } from "./content/urlResolver.js";
-import { processImageContent } from "./content/processors/imageProcessor.js";
-import { processTextContent, isSupportedTextMimeType } from "./content/processors/textProcessor.js";
-import { processPdfContent, isSupportedPdfMimeType } from "./content/processors/pdfProcessor.js";
-import { processCsvContent, isSupportedCsvMimeType } from "./content/processors/csvProcessor.js";
-import { processHtmlContent, isSupportedHtmlMimeType } from "./content/processors/htmlProcessor.js";
+import { resolveMessageContents } from "./content/messageContentResolver.js";
 import { adaptContentsToGeminiParts } from "./content/adapters/geminiContentAdapter.js";
-import { ContentError, CONTENT_ERROR_CODES } from "./content/contentErrors.js";
+import { ContentError } from "./content/contentErrors.js";
 
 const DEFAULT_HISTORY_LIMIT = 10;
 const DEFAULT_MAX_USER_MESSAGE_LENGTH = 4000;
-
-function getSupportedFiles(files = []) {
-  return files.filter(file => {
-    const mimeType = (file.mimetype || file.mime_type || "").toLowerCase();
-    return mimeType.startsWith("image/")
-      || isSupportedTextMimeType(mimeType)
-      || isSupportedPdfMimeType(mimeType)
-      || isSupportedCsvMimeType(mimeType);
-  });
-}
-
-function getUnsupportedFiles(files = []) {
-  return files.filter(file => !getSupportedFiles([file]).length);
-}
-
-function processResolvedContent(content) {
-  const mimeType = (content.original?.mimeType || "").toLowerCase();
-  if (mimeType.startsWith("image/")) return processImageContent(content);
-  if (isSupportedTextMimeType(mimeType)) return processTextContent(content);
-  if (isSupportedPdfMimeType(mimeType)) return processPdfContent(content);
-  if (isSupportedCsvMimeType(mimeType)) return processCsvContent(content);
-  if (isSupportedHtmlMimeType(mimeType)) return processHtmlContent(content);
-  throw new ContentError(CONTENT_ERROR_CODES.UNSUPPORTED_MIME_TYPE, `Unsupported content MIME type: ${mimeType}`);
-}
-
-async function resolveUrls(urls = []) {
-  return Promise.all(urls.map(async url => {
-    const content = await resolveUrl(url);
-    return processResolvedContent(content);
-  }));
-}
 
 export async function handleAppMention(event) {
   const safeEvent = event || {};
@@ -74,7 +37,9 @@ export async function handleAppMention(event) {
 
   const userMessage = rawText.replace(/<@[^>]+>\s*/, "").trim();
   const maxUserMessageLengthEnv = Number(process.env.MAX_USER_MESSAGE_LENGTH);
-  const maxUserMessageLength = Number.isFinite(maxUserMessageLengthEnv) ? maxUserMessageLengthEnv : DEFAULT_MAX_USER_MESSAGE_LENGTH;
+  const maxUserMessageLength = Number.isFinite(maxUserMessageLengthEnv)
+    ? maxUserMessageLengthEnv
+    : DEFAULT_MAX_USER_MESSAGE_LENGTH;
 
   if (!userMessage && (!safeEvent.files || safeEvent.files.length === 0)) {
     await sendSlackMessage(channelId, threadTs, "質問や添付ファイルを入力してください。");
@@ -87,37 +52,52 @@ export async function handleAppMention(event) {
   }
 
   try {
-    await saveMessage({ channel_id: channelId, thread_ts: threadTs, message_ts: event.ts, user_id: userId, role: "user", text: userMessage || "[file attachment]" });
+    await saveMessage({
+      channel_id: channelId,
+      thread_ts: threadTs,
+      message_ts: event.ts,
+      user_id: userId,
+      role: "user",
+      text: userMessage || "[file attachment]",
+    });
+    logger.debug("💾 incoming message saved to DB");
   } catch (err) {
     logger.error("Failed to save incoming user message: " + err.message);
   }
 
   const historyLimitEnv = Number(process.env.HISTORY_MAX);
-  const historyLimit = Number.isFinite(historyLimitEnv) && historyLimitEnv > 0 ? historyLimitEnv : DEFAULT_HISTORY_LIMIT;
+  const historyLimit = Number.isFinite(historyLimitEnv) && historyLimitEnv > 0
+    ? historyLimitEnv
+    : DEFAULT_HISTORY_LIMIT;
 
   let context = { summary: null, summaryMessageCount: 0, recentMessages: [] };
   try {
-    context = await buildContext({ channel_id: channelId, thread_ts: threadTs, current_message_ts: event.ts, recentLimit: historyLimit });
+    context = await buildContext({
+      channel_id: channelId,
+      thread_ts: threadTs,
+      current_message_ts: event.ts,
+      recentLimit: historyLimit,
+    });
+    logger.info(`🔎 Retrieved context: summary=${Boolean(context.summary)} recentMessages=${context.recentMessages.length}`);
   } catch (err) {
     logger.error("Failed to build conversation context: " + err.message);
   }
 
   let inputParts = [];
-  const files = safeEvent.files || [];
-  const supportedFiles = getSupportedFiles(files);
-  const unsupportedFiles = getUnsupportedFiles(files);
-  const urls = extractUrls(userMessage);
-
   try {
-    const [fileContents, urlContents] = await Promise.all([
-      supportedFiles.length > 0
-        ? resolveSlackFiles(supportedFiles).then(contents => contents.map(processResolvedContent))
-        : [],
-      urls.length > 0 ? resolveUrls(urls) : [],
-    ]);
-    inputParts = adaptContentsToGeminiParts([...fileContents, ...urlContents]);
-    if (fileContents.length + urlContents.length > 0) {
-      logger.info(`📎 Prepared ${fileContents.length} attachment(s) and ${urlContents.length} URL(s) for Gemini`);
+    const resolved = await resolveMessageContents({
+      files: safeEvent.files || [],
+      text: userMessage,
+    });
+    inputParts = adaptContentsToGeminiParts(resolved.contents);
+    logger.info(`📎 Prepared ${resolved.fileCount} attachment(s) and ${resolved.urlCount} URL(s) for Gemini`);
+
+    if (resolved.unsupportedFiles.length > 0) {
+      logger.info(`Ignoring ${resolved.unsupportedFiles.length} unsupported attachment(s)`);
+      if (resolved.contents.length === 0 && (safeEvent.files || []).length > 0) {
+        await sendSlackMessage(channelId, threadTs, "添付されたファイル形式には現在対応していません。");
+        return;
+      }
     }
   } catch (err) {
     const message = err instanceof ContentError
@@ -126,14 +106,6 @@ export async function handleAppMention(event) {
     logger.error(`Failed to process external content: ${err.message}`);
     await sendSlackMessage(channelId, threadTs, message);
     return;
-  }
-
-  if (unsupportedFiles.length > 0) {
-    logger.info(`Ignoring ${unsupportedFiles.length} unsupported attachment(s) until their processors are implemented`);
-    if (supportedFiles.length === 0 && files.length > 0) {
-      await sendSlackMessage(channelId, threadTs, "添付されたファイル形式には現在対応していません。");
-      return;
-    }
   }
 
   const systemPrompt = process.env.SYSTEM_PROMPT || "";
@@ -161,8 +133,16 @@ export async function handleAppMention(event) {
     const slackResp = await sendSlackMessage(channelId, threadTs, displayReply);
     if (slackResp && slackResp.ok) {
       const botTs = slackResp.ts || (slackResp.message && slackResp.message.ts) || String(Date.now() / 1000);
-      await saveMessage({ channel_id: channelId, thread_ts: threadTs || botTs, message_ts: botTs, user_id: null, role: "bot", text: cleanReply });
-      updateSummaryIfNeeded({ channel_id: channelId, thread_ts: threadTs }).catch((err) => logger.error(`Detached summary update failed: ${err.message}`));
+      await saveMessage({
+        channel_id: channelId,
+        thread_ts: threadTs || botTs,
+        message_ts: botTs,
+        user_id: null,
+        role: "bot",
+        text: cleanReply,
+      });
+      updateSummaryIfNeeded({ channel_id: channelId, thread_ts: threadTs })
+        .catch((err) => logger.error(`Detached summary update failed: ${err.message}`));
     } else {
       logger.error("Slack post returned not-ok when trying to send Gemini reply");
     }
