@@ -1,5 +1,3 @@
-import supabase from "../db.js";
-
 const DEFAULT_RETENTION_DAYS = 90;
 
 export function getUsageRetentionDays() {
@@ -19,9 +17,15 @@ export function retentionCutoff(now = new Date(), retentionDays = getUsageRetent
   return cutoff;
 }
 
-export async function deleteExpiredUsageEvents({ now = new Date(), retentionDays = getUsageRetentionDays(), store = supabase } = {}) {
+async function defaultStore() {
+  const module = await import("../db.js");
+  return module.default;
+}
+
+export async function deleteExpiredUsageEvents({ now = new Date(), retentionDays = getUsageRetentionDays(), store = null } = {}) {
   const cutoff = retentionCutoff(now, retentionDays);
-  const { data, error } = await store
+  const db = store || await defaultStore();
+  const { data, error } = await db
     .from("usage_events")
     .delete()
     .lt("occurred_at", cutoff.toISOString())
