@@ -17,6 +17,10 @@ export function adaptContentToGeminiParts(content) {
     if (representation.type === REPRESENTATION_TYPES.TEXT && typeof representation.text === "string") {
       parts.push({ text: representation.text });
     }
+
+    if (representation.type === REPRESENTATION_TYPES.STRUCTURED && representation.rows) {
+      parts.push({ text: JSON.stringify({ schema: representation.schema, rows: representation.rows }) });
+    }
   }
 
   if (parts.length === 0) {
