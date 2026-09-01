@@ -1,5 +1,7 @@
 import logger from "../utils/logger.js";
-import { getLatestReplies, saveMessage } from "./messageStore.js";
+import { saveMessage } from "./messageStore.js";
+import { buildContext } from "./contextService.js";
+import { updateSummaryIfNeeded } from "./conversationSummaryService.js";
 import { sendSlackMessage } from "./slackService.js";
 import { generate } from "./gemini/geminiService.js";
 import { buildPrompt } from "./gemini/promptBuilder.js";
@@ -85,24 +87,27 @@ export async function handleAppMention(event) {
     logger.info(`historyLimit is invalid; defaulting to ${historyLimit}`);
   }
 
-  let replies = [];
+  let context = { summary: null, summaryMessageCount: 0, recentMessages: [] };
   try {
-    replies = await getLatestReplies(channelId, threadTs, historyLimit);
-    logger.info(`🔎 Retrieved ${replies.length} context messages from DB`);
-    logger.debug("🧾 Context messages:", JSON.stringify(replies, null, 2));
+    context = await buildContext({
+      channel_id: channelId,
+      thread_ts: threadTs,
+      current_message_ts: event.ts,
+      recentLimit: historyLimit,
+    });
+    logger.info(
+      `🔎 Retrieved context: summary=${Boolean(context.summary)} recentMessages=${context.recentMessages.length}`,
+    );
+    logger.debug("🧾 Context messages:", JSON.stringify(context.recentMessages, null, 2));
   } catch (err) {
-    logger.error("Failed to load replies from DB: " + err.message);
-  }
-
-  const filteredReplies = replies.filter(reply => reply.message_ts !== event.ts);
-  if (filteredReplies.length !== replies.length) {
-    logger.info("🧹 Removed current user message from context to avoid duplication.");
+    logger.error("Failed to build conversation context: " + err.message);
   }
 
   const systemPrompt = process.env.SYSTEM_PROMPT || "";
   const contents = buildPrompt({
     systemPrompt,
-    history: filteredReplies,
+    history: context.recentMessages,
+    summary: context.summary,
     userMessage,
   });
 
@@ -142,6 +147,11 @@ export async function handleAppMention(event) {
         text: cleanReply,
       });
       logger.debug(`💾 saved bot message to DB (ts=${botTs})`);
+
+      // Summary generation is deliberately detached from the response path.
+      // A summary failure must never make an otherwise successful Slack turn fail.
+      updateSummaryIfNeeded({ channel_id: channelId, thread_ts: threadTs })
+        .catch((err) => logger.error(`Detached summary update failed: ${err.message}`));
     } else {
       logger.error("Slack post returned not-ok when trying to send Gemini reply");
     }
