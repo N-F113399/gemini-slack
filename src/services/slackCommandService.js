@@ -1,16 +1,23 @@
 import logger from "../utils/logger.js";
 
-const COMMANDS = new Set(["詳しく", "簡潔に", "要約", "翻訳", "再生成"]);
+const COMMANDS = new Set([
+  "detail",
+  "concise",
+  "summarize",
+  "translate",
+  "regenerate",
+  "rewrite",
+]);
 
 export function parseSlackCommand(text = "") {
   const normalized = text.trim().replace(/^\/gemini\s*/i, "").trim();
   const [command, ...args] = normalized.split(/\s+/);
 
-  if (!command || !COMMANDS.has(command)) {
+  if (!command || !COMMANDS.has(command.toLowerCase())) {
     return { command: null, args };
   }
 
-  return { command, args };
+  return { command: command.toLowerCase(), args };
 }
 
 export async function handleSlackCommand(commandPayload) {
