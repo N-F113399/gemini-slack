@@ -1,3 +1,5 @@
+import logger from "../../utils/logger.js";
+
 const DEFAULT_MAX_EVENTS = 10_000;
 
 function readMaxEvents() {
@@ -10,12 +12,23 @@ function normalizeNumber(value) {
 }
 
 export class UsageTracker {
-  constructor({ maxEvents = readMaxEvents() } = {}) {
+  constructor({ maxEvents = readMaxEvents(), persistence = null } = {}) {
     if (!Number.isInteger(maxEvents) || maxEvents <= 0) {
       throw new TypeError("maxEvents must be a positive integer");
     }
+    if (persistence !== null && typeof persistence !== "function") {
+      throw new TypeError("persistence must be a function or null");
+    }
     this.maxEvents = maxEvents;
+    this.persistence = persistence;
     this.events = [];
+  }
+
+  setPersistence(persistence) {
+    if (persistence !== null && typeof persistence !== "function") {
+      throw new TypeError("persistence must be a function or null");
+    }
+    this.persistence = persistence;
   }
 
   record({
@@ -57,6 +70,13 @@ export class UsageTracker {
 
     this.events.push(event);
     if (this.events.length > this.maxEvents) this.events.shift();
+
+    if (this.persistence) {
+      Promise.resolve()
+        .then(() => this.persistence(event))
+        .catch(error => logger.error(`Failed to persist usage event: ${error.message}`));
+    }
+
     return event;
   }
 
