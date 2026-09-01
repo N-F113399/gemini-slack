@@ -1,0 +1,149 @@
+version: 1
+document:
+  title: "Phase 6 Operations Design"
+  description: "Rate Limit, usage tracking, free quota monitoring, alerting, and retention design."
+  status: implemented
+  branch: "phase4/content-foundation"
+
+principles:
+  - "ユーザー向けAI処理と運用系処理を疎結合にする"
+  - "料金計算は行わず、無料枠の使用量を把握する"
+  - "Usage Eventには生成本文・検索本文を保存しない"
+  - "DBや外部通知が利用できないテストでも純粋なロジックをテストできるよう依存注入する"
+  - "APIキーはコードや設計書へ保存しない"
+
+features:
+  - id: "P6-F01"
+    name: "Rate Limit"
+    status: implemented
+    scope: "Slack user"
+    default:
+      max_requests: 10
+      window_ms: 60000
+    configuration:
+      RATE_LIMIT_MAX_REQUESTS: "1分間の最大リクエスト数"
+      RATE_LIMIT_WINDOW_MS: "Rate Limitの時間窓"
+    implementation:
+      - "src/services/rateLimitService.js"
+      - "src/routes/slackEvent.js"
+      - "test/rateLimitService.test.js"
+    note: "現在は単一プロセスのインメモリ方式。将来Redis等へ差し替え可能。"
+
+  - id: "P6-F02"
+    name: "Usage Tracking"
+    status: implemented
+    tracked:
+      - "provider"
+      - "service"
+      - "operation"
+      - "success"
+      - "latency_ms"
+      - "input_tokens"
+      - "output_tokens"
+      - "total_tokens"
+      - "credits"
+      - "request_count"
+      - "error_code"
+      - "http_status"
+      - "retryable"
+      - "quota_related"
+    persistence:
+      table: "public.usage_events"
+      retention_days_default: 90
+    implementation:
+      - "src/services/usage/usageTracker.js"
+      - "src/services/usage/usageEventStore.js"
+    note: "fallback時もProvider試行単位で記録する。"
+
+  - id: "P6-F03"
+    name: "Usage Report"
+    status: implemented
+    endpoint: "GET /usage"
+    auth: "Bearer USAGE_REPORT_TOKEN"
+    implementation:
+      - "src/services/usage/usageReportService.js"
+      - "src/routes/usage.js"
+      - "test/usageReportService.test.js"
+
+  - id: "P6-F04"
+    name: "Free Quota Report"
+    status: implemented
+    endpoint: "GET /usage/quota"
+    auth: "Bearer USAGE_REPORT_TOKEN"
+    metrics:
+      - "limit"
+      - "used"
+      - "remaining"
+      - "utilization"
+      - "resetAt"
+    implementation:
+      - "src/services/usage/freeQuotaConfig.js"
+      - "src/services/usage/freeQuotaPeriod.js"
+      - "src/services/usage/freeQuotaReportService.js"
+      - "src/routes/usageQuota.js"
+      - "test/freeQuotaReportService.test.js"
+    note: "料金ではなく無料枠の消費状況を扱う。"
+
+  - id: "P6-F05"
+    name: "Monitoring / Alerting"
+    status: implemented
+    monitored_metrics:
+      - "failure_rate"
+      - "average_latency"
+      - "free_quota_utilization"
+    default_thresholds:
+      USAGE_ALERT_FAILURE_RATE: 0.3
+      USAGE_ALERT_LATENCY_MS: 5000
+      USAGE_ALERT_QUOTA_UTILIZATION: 0.8
+    implementation:
+      - "src/services/monitoring/usageMonitor.js"
+      - "src/services/monitoring/usageMonitorScheduler.js"
+      - "src/services/monitoring/alertNotifier.js"
+      - "src/services/monitoring/slackAlertSender.js"
+      - "test/usageMonitor.test.js"
+      - "test/usageMonitorScheduler.test.js"
+      - "test/alertNotifier.test.js"
+    schedule:
+      USAGE_MONITOR_INTERVAL_MS: 300000
+    notification:
+      destination_env: "ALERT_SLACK_CHANNEL"
+      token: "SLACK_BOT_TOKEN"
+
+  - id: "P6-F06"
+    name: "Usage Event Retention"
+    status: implemented
+    default_retention_days: 90
+    configuration:
+      USAGE_RETENTION_DAYS: "保存期間（日）"
+      USAGE_RETENTION_INTERVAL_MS: "Retention実行間隔"
+    implementation:
+      - "src/services/usage/usageRetentionService.js"
+      - "src/services/usage/usageRetentionScheduler.js"
+      - "test/usageRetentionService.test.js"
+      - "test/usageRetentionScheduler.test.js"
+    behavior:
+      delete_condition: "occurred_at < retention cutoff"
+      overlapping_runs: "skip"
+
+operational_endpoints:
+  - "GET /usage"
+  - "GET /usage/quota"
+
+environment:
+  required:
+    - "SLACK_BOT_TOKEN"
+    - "GEMINI_API_KEY"
+    - "SYSTEM_PROMPT"
+  usage_report:
+    - "USAGE_REPORT_TOKEN"
+  alerts:
+    - "ALERT_SLACK_CHANNEL"
+  retention:
+    - "USAGE_RETENTION_DAYS"
+    - "USAGE_RETENTION_INTERVAL_MS"
+
+future:
+  - "Rate LimitをRedis等へ移行して複数インスタンスで共有"
+  - "Alert通知のdeduplication / cooldown強化"
+  - "外部監視基盤へのmetrics export"
+  - "Usage集計の長期保存とExcel/CSV export"
