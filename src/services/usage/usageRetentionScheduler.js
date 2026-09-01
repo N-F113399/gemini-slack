@@ -1,5 +1,4 @@
 import logger from "../../utils/logger.js";
-import { deleteExpiredUsageEvents } from "./usageRetentionService.js";
 
 const DEFAULT_INTERVAL_MS = 86_400_000;
 
@@ -8,8 +7,13 @@ function readIntervalMs() {
   return Number.isFinite(value) && value > 0 ? value : DEFAULT_INTERVAL_MS;
 }
 
+async function defaultCleanup(options) {
+  const { deleteExpiredUsageEvents } = await import("./usageRetentionService.js");
+  return deleteExpiredUsageEvents(options);
+}
+
 export class UsageRetentionScheduler {
-  constructor({ cleanup = deleteExpiredUsageEvents } = {}) {
+  constructor({ cleanup = defaultCleanup } = {}) {
     this.cleanup = cleanup;
     this.timer = null;
     this.running = false;
