@@ -1,0 +1,59 @@
+version: 1
+document:
+  title: "Phase 7 Search Decision Design"
+  description: "Search invocation rules focused on reducing false-positive web searches while preserving explicit and freshness-sensitive requests."
+  phase: 7
+  feature_id: "P7-F01"
+  branch: "phase4/content-foundation"
+
+rules:
+  priority:
+    - explicit
+    - freshness
+    - volatile_information
+    - research_intent
+    - none
+
+  explicit:
+    description: "明示的なsearch/web search/look up指示。最優先で検索する。"
+    examples:
+      - "search: PostgreSQL 18"
+      - "web search: PostgreSQL 18"
+      - "look up PostgreSQL 18 changes"
+
+  freshness:
+    description: "最新・現在・今日など、鮮度が回答品質に直結する要求。"
+    examples:
+      - "PostgreSQLの最新情報"
+      - "What is the current PostgreSQL release?"
+      - "今日のニュース"
+
+  volatile_information:
+    description: "価格、株価、為替、天気、空席など時間変動が大きい情報。"
+
+  research_intent:
+    description: "調査行為を明確に要求する表現。ただし汎用的なfind/checkは検索扱いにしない。"
+    positive_examples:
+      - "research PostgreSQL changes"
+      - "look up PostgreSQL 18 changes"
+      - "調べて"
+    negative_examples:
+      - "find the bug in this function"
+      - "check this code for a null handling bug"
+
+  none:
+    description: "一般的な知識質問や与えられた内容の解析ではWeb検索しない。"
+
+implementation:
+  file: "src/services/search/searchDecision.js"
+  tests: "test/searchDecision.test.js"
+  principles:
+    - "誤検索を最小化する"
+    - "明示的検索は確実に実行する"
+    - "動的情報は検索する"
+    - "コード解析等のfind/checkをWeb検索と誤認しない"
+
+future:
+  - "LLM-based search decision as a fallback for ambiguous natural-language requests"
+  - "decision confidence score"
+  - "feedback metrics from actual search invocation/usefulness"
