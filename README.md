@@ -2,20 +2,18 @@
 
 SlackからGeminiを利用するBotです。
 
-現在は、通常のメンションによる質問だけでなく、スレッド単位の会話履歴、Conversation Summary、Message Shortcut、画像/PDF/テキスト/CSV/URLの処理、Web検索、Usage Tracking、Rate Limitまで対応しています。
+通常のメンションによる質問に加えて、会話コンテキスト、Conversation Summary、Message Shortcut、画像/PDF/テキスト/CSV/URL、Web検索、Usage Tracking、Rate Limit、監視まで扱える構成です。
 
 ## Features
 
 ### Conversation
-
 - SlackメンションからGeminiへ質問
 - Thread単位の会話コンテキスト
 - Recent messages + Conversation Summary
 - Gemini APIのRetry / model fallback
 
 ### Slack operations
-
-Message Shortcutから既存の回答を加工できます。
+Message Shortcutで既存回答を加工できます。
 
 - `detail` - 詳細化
 - `concise` - 簡潔化
@@ -23,12 +21,9 @@ Message Shortcutから既存の回答を加工できます。
 - English translation - 自然な英語への翻訳
 - `rewrite` - 書き換え
 
-Slack側のMessage Shortcut数制約を考慮して機能を厳選しています。
+Slack側のShortcut数制約を考慮して機能を厳選しています。
 
 ### Content / Multimodal
-
-メッセージ本文だけでなく、添付ファイルやURLをGeminiへの入力として扱えます。
-
 - Images: PNG / JPEG / WEBP / HEIC / HEIF
 - PDF
 - Text: TXT / Markdown / JSON / XML
@@ -36,33 +31,8 @@ Slack側のMessage Shortcut数制約を考慮して機能を厳選していま�
 - HTTP/HTTPS URL
 - 複数コンテンツの混在
 
-例:
-
-```text
-@Gemini この画像について説明して
-[image.png]
-```
-
-```text
-@Gemini このPDFを要約して
-[manual.pdf]
-```
-
-```text
-@Gemini このCSVの傾向を分析して
-[data.csv]
-```
-
-```text
-@Gemini https://example.com/article
-この記事を要約して
-```
-
-画像 + URLなどの複数入力も同一メッセージで利用できます。
-
 ### Web Search
-
-検索が必要と判定された質問では、複数の検索Providerを利用します。
+検索が必要と判定された質問では、Tavily / Exa / You.comを共通SearchProvider interfaceで利用します。
 
 ```text
 Search Decision
@@ -79,27 +49,35 @@ Gemini
 Sources
 ```
 
-ProviderはAPIキーが設定されているものだけを候補とし、retryable / quota系障害時は次のProviderへfallbackします。
-
-検索結果はEvidenceとして選択・重複排除し、Geminiへは外部のuntrusted dataとして渡します。回答には参照したSourcesを表示します。
+APIキーが設定されたProviderだけを候補とし、retryable / quota系エラーではfallbackします。外部検索結果はuntrusted dataとして扱います。
 
 ### Operations
-
 - User単位のRate Limit
 - Gemini / Search ProviderのUsage Tracking
 - SupabaseへのUsage Event永続化
-- 保護されたUsage Report API
+- Usage Report API
+- 無料枠のUsage / Quota確認
+- failure rate / latency / quota utilization監視
+- Slack Alert通知
+- Usage Event Retention
 
-Usage Report:
+## Usage / Operations
 
 ```text
 GET /usage
 Authorization: Bearer <USAGE_REPORT_TOKEN>
 ```
 
-## Architecture
+```text
+GET /usage/quota
+Authorization: Bearer <USAGE_REPORT_TOKEN>
+```
 
-アプリ内部では、外部コンテンツを `Content`、検索を `SearchResponse / Evidence`、利用状況を `Usage Event` として共通化します。
+料金計算は行わず、無料枠の使用量・残量・利用率を確認する方式です。
+
+詳細な運用設定・障害対応・デプロイ後チェックは [`docs/operations.md`](docs/operations.md) を参照してください。
+
+## Architecture
 
 ```text
 Slack
@@ -109,43 +87,18 @@ Application Orchestration
   ├─ Content Resolver / Processor
   ├─ Search Decision / Provider Router
   ├─ Usage / Rate Limit
+  └─ Monitoring / Alert
   ↓
 Gemini Service
   ↓
 Slack Reply
 ```
 
-Content:
-
-```text
-Slack File ─┐
-URL ────────┼→ Resolver → Content → Processor → Gemini Adapter
-Text ───────┘
-```
-
-検索:
-
-```text
-User message
-    ↓
-Search Decision
-    ↓
-SearchService
-    ↓
-Tavily / Exa / You.com
-    ↓
-Evidence Selector
-    ↓
-Search Context + Sources
-    ↓
-Gemini
-```
-
 詳細は [`docs/architecture.md`](docs/architecture.md) を参照してください。
 
 ## URL Security
 
-URLはBotサーバーから取得するため、SSRF対策を入れています。
+Botサーバーから外部URLを取得するため、SSRF対策を実施します。
 
 - `http` / `https` のみ許可
 - localhost / private network addressを拒否
@@ -157,28 +110,7 @@ URLはBotサーバーから取得するため、SSRF対策を入れています�
 - response sizeを制限
 - Content-Typeをallowlistで制限
 
-URL取得結果とWeb検索結果は、ユーザー指示とは別の外部コンテンツとして扱います。外部テキスト中の命令をシステム命令として信頼しません。
-
-## Limits
-
-主な制限値は環境変数で調整できます。
-
-| Environment variable | Default |
-| --- | ---: |
-| `MAX_MESSAGE_CONTENTS` | 10 |
-| `MAX_SLACK_FILE_SIZE` | 10 MB |
-| `SLACK_FILE_TIMEOUT_MS` | 10 秒 |
-| `MAX_URL_RESPONSE_SIZE` | 10 MB |
-| `URL_TIMEOUT_MS` | 10 秒 |
-| `MAX_CONTENT_TEXT_LENGTH` | 200,000文字 |
-| `MAX_CSV_ROWS` | 10,000行 |
-| `SEARCH_MAX_QUERY_LENGTH` | 500 |
-| `SEARCH_MAX_RESULTS` | 5 |
-| `SEARCH_MAX_DOMAINS` | 5 |
-| `SEARCH_MAX_PROVIDER_ATTEMPTS` | 3 |
-| `RATE_LIMIT_MAX_REQUESTS` | 10 |
-| `RATE_LIMIT_WINDOW_MS` | 60 秒 |
-| `USAGE_TRACKER_MAX_EVENTS` | 10,000 |
+URL取得結果・Web検索結果はユーザー指示とは別の外部コンテンツとして扱います。
 
 ## Environment
 
@@ -188,6 +120,7 @@ GEMINI_MODEL=...
 SLACK_BOT_TOKEN=...
 SUPABASE_URL=...
 SUPABASE_KEY=...
+SYSTEM_PROMPT=...
 
 TAVILY_API_KEY=...
 EXA_API_KEY=...
@@ -198,6 +131,13 @@ RATE_LIMIT_MAX_REQUESTS=10
 RATE_LIMIT_WINDOW_MS=60000
 USAGE_TRACKER_MAX_EVENTS=10000
 USAGE_REPORT_TOKEN=...
+USAGE_ALERT_FAILURE_RATE=0.3
+USAGE_ALERT_LATENCY_MS=5000
+USAGE_ALERT_QUOTA_UTILIZATION=0.8
+ALERT_SLACK_CHANNEL=...
+USAGE_MONITOR_INTERVAL_MS=300000
+USAGE_RETENTION_DAYS=90
+USAGE_RETENTION_INTERVAL_MS=86400000
 ```
 
 `.env` はGitへコミットしないでください。
@@ -209,52 +149,52 @@ npm test
 npm run check
 ```
 
-ローカルの統合動作確認では `.env` に必要な認証情報を設定してください。
-
 ## Database
 
-現在の主要な永続化対象はSupabase PostgreSQLです。
+主要な永続化対象はSupabase PostgreSQLです。
 
 - `public.slack_messages` - 会話履歴
 - `public.conversation_summaries` - Conversation Summary
 - `public.usage_events` - AI Provider利用状況
 
-メッセージ本文などの会話データは暗号化して保存します。Usage Eventには原則として生成本文や検索本文を保存せず、Provider・token/credit・latency・エラーなどの運用メタデータを記録します。
-
-ファイルbinary自体はDBへ保存しません。永続化が必要になった場合はObject Storage + metadata方式を想定します。
+会話データは暗号化して保存します。Usage Eventには原則として生成本文や検索本文を保存せず、Provider・token/credit・latency・エラーなどの運用メタデータを記録します。
 
 ## Repository documentation
 
 ```text
 README.md   リポジトリの入口、導入、使い方、現状、ロードマップ
 
-design/     機能・データ・API・DBなどの設計書
+design/     機能・DB・API・データ構造などの設計書
 
- docs/       Architecture、開発手順、運用、Troubleshootingなどの技術ドキュメント
+docs/       Architecture・開発・運用・Troubleshootingなどの技術ドキュメント
 ```
 
-主な設計一覧は [`design/feature-design.yaml`](design/feature-design.yaml) に、アーキテクチャ説明は [`docs/architecture.md`](docs/architecture.md) にまとめています。
+- [`design/feature-design.yaml`](design/feature-design.yaml)
+- [`design/usage-quota.yaml`](design/usage-quota.yaml)
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/operations.md`](docs/operations.md)
 
 ## Roadmap
 
 ```text
-Phase 0  現状テスト追加                     ✅
-Phase 1  責務分離                           ✅
-Phase 2  コンテキスト改善                   ✅
-Phase 3  Slack操作性                        ✅
-Phase 4  マルチモーダル / 外部コンテンツ     ✅
-Phase 5  Web検索                             ✅ 実装完了 / 実運用調整
-Phase 6  運用改善                            🚧 実装中
-Phase 7  品質・信頼性向上                    ⏳
+Phase 0  現状テスト追加                  ✅
+Phase 1  責務分離                        ✅
+Phase 2  コンテキスト改善                ✅
+Phase 3  Slack操作性                     ✅
+Phase 4  マルチモーダル / 外部コンテンツ  ✅
+Phase 5  Web検索                        ✅ 実装完了 / 実運用調整
+Phase 6  運用改善                        ✅ 実装完了
+Phase 7  品質・信頼性向上                ⏳ 次フェーズ
 ```
 
-### Phase 6 remaining
+### Phase 6 completed
 
-- Cost Calculator / pricing table
+- Rate Limit
+- Usage Tracking / Persistence
+- Usage Report / Free Quota Report
 - Monitoring / Alerting
-- Usage retention / aggregation policy
-- Rate Limitの分散環境対応
-- Usage Reportの運用強化
+- Slack Alert Notification
+- Usage Event Retention
 
 ### Phase 7 planned
 
@@ -270,6 +210,6 @@ Phase 7  品質・信頼性向上                    ⏳
 2. Resolverは取得、Processorは変換、AdapterはLLM形式変換に限定する。
 3. 元データと派生Representationを区別する。
 4. 外部URL・検索結果は信頼しない。
-5. Usage計測は本処理と疎結合にし、永続化失敗でユーザー向け処理を壊さない。
+5. Usage計測・監視は本処理と疎結合にする。
 6. APIキーや認証情報をリポジトリへ保存しない。
 7. 将来のProvider / LLM / Storage追加を想定してインターフェースとFactoryを使う。
