@@ -2,7 +2,7 @@
 
 SlackからGeminiを利用するBotです。
 
-現在は、通常のメンションによる質問に加えて、スレッド単位の会話履歴・Conversation Summary・Message Shortcut・画像/PDF/テキスト/CSV/URLのコンテンツ処理に対応しています。
+現在は、通常のメンションによる質問だけでなく、スレッド単位の会話履歴、Conversation Summary、Message Shortcut、画像/PDF/テキスト/CSV/URLの処理、Web検索、Usage Tracking、Rate Limitまで対応しています。
 
 ## Features
 
@@ -11,7 +11,7 @@ SlackからGeminiを利用するBotです。
 - SlackメンションからGeminiへ質問
 - Thread単位の会話コンテキスト
 - Recent messages + Conversation Summary
-- Gemini APIのRetry / fallback
+- Gemini APIのRetry / model fallback
 
 ### Slack operations
 
@@ -20,10 +20,10 @@ Message Shortcutから既存の回答を加工できます。
 - `detail` - 詳細化
 - `concise` - 簡潔化
 - `summarize` - 要約
-- English translation
+- English translation - 自然な英語への翻訳
 - `rewrite` - 書き換え
 
-SlackのMessage Shortcut数の制約を考慮し、操作数は厳選しています。
+Slack側のMessage Shortcut数制約を考慮して機能を厳選しています。
 
 ### Content / Multimodal
 
@@ -60,9 +60,62 @@ SlackのMessage Shortcut数の制約を考慮し、操作数は厳選してい�
 
 画像 + URLなどの複数入力も同一メッセージで利用できます。
 
+### Web Search
+
+検索が必要と判定された質問では、複数の検索Providerを利用します。
+
+```text
+Search Decision
+  ↓
+Provider Router
+  ├─ Tavily
+  ├─ Exa
+  └─ You.com
+  ↓
+Evidence Selection
+  ↓
+Gemini
+  ↓
+Sources
+```
+
+ProviderはAPIキーが設定されているものだけを候補とし、retryable / quota系障害時は次のProviderへfallbackします。
+
+検索結果はEvidenceとして選択・重複排除し、Geminiへは外部のuntrusted dataとして渡します。回答には参照したSourcesを表示します。
+
+### Operations
+
+- User単位のRate Limit
+- Gemini / Search ProviderのUsage Tracking
+- SupabaseへのUsage Event永続化
+- 保護されたUsage Report API
+
+Usage Report:
+
+```text
+GET /usage
+Authorization: Bearer <USAGE_REPORT_TOKEN>
+```
+
 ## Architecture
 
-外部コンテンツは `Content` を中心とした共通モデルで扱います。
+アプリ内部では、外部コンテンツを `Content`、検索を `SearchResponse / Evidence`、利用状況を `Usage Event` として共通化します。
+
+```text
+Slack
+  ↓
+Application Orchestration
+  ├─ Conversation Context
+  ├─ Content Resolver / Processor
+  ├─ Search Decision / Provider Router
+  ├─ Usage / Rate Limit
+  ↓
+Gemini Service
+  ↓
+Slack Reply
+```
+
+Content:
 
 ```text
 Slack File ─┐
@@ -70,12 +123,23 @@ URL ────────┼→ Resolver → Content → Processor → Gemini
 Text ───────┘
 ```
 
-- **Resolver**: Slack File / URLなどからコンテンツを取得
-- **Processor**: MIME typeに応じて解析・変換
-- **Content**: アプリ内部の標準表現
-- **Gemini Adapter**: ContentをGemini APIのinput partへ変換
+検索:
 
-元データと派生Representationを分離し、将来の新しい入力形式やLLMへの拡張を考慮しています。
+```text
+User message
+    ↓
+Search Decision
+    ↓
+SearchService
+    ↓
+Tavily / Exa / You.com
+    ↓
+Evidence Selector
+    ↓
+Search Context + Sources
+    ↓
+Gemini
+```
 
 詳細は [`docs/architecture.md`](docs/architecture.md) を参照してください。
 
@@ -93,11 +157,11 @@ URLはBotサーバーから取得するため、SSRF対策を入れています�
 - response sizeを制限
 - Content-Typeをallowlistで制限
 
-URLから取得した内容は外部コンテンツとして扱い、ユーザー指示とは区別します。
+URL取得結果とWeb検索結果は、ユーザー指示とは別の外部コンテンツとして扱います。外部テキスト中の命令をシステム命令として信頼しません。
 
 ## Limits
 
-主なContent制限値は環境変数で調整できます。
+主な制限値は環境変数で調整できます。
 
 | Environment variable | Default |
 | --- | ---: |
@@ -108,6 +172,13 @@ URLから取得した内容は外部コンテンツとして扱い、ユーザ�
 | `URL_TIMEOUT_MS` | 10 秒 |
 | `MAX_CONTENT_TEXT_LENGTH` | 200,000文字 |
 | `MAX_CSV_ROWS` | 10,000行 |
+| `SEARCH_MAX_QUERY_LENGTH` | 500 |
+| `SEARCH_MAX_RESULTS` | 5 |
+| `SEARCH_MAX_DOMAINS` | 5 |
+| `SEARCH_MAX_PROVIDER_ATTEMPTS` | 3 |
+| `RATE_LIMIT_MAX_REQUESTS` | 10 |
+| `RATE_LIMIT_WINDOW_MS` | 60 秒 |
+| `USAGE_TRACKER_MAX_EVENTS` | 10,000 |
 
 ## Environment
 
@@ -117,6 +188,16 @@ GEMINI_MODEL=...
 SLACK_BOT_TOKEN=...
 SUPABASE_URL=...
 SUPABASE_KEY=...
+
+TAVILY_API_KEY=...
+EXA_API_KEY=...
+YDC_API_KEY=...
+SEARCH_PROVIDER_ORDER=tavily,exa,you
+
+RATE_LIMIT_MAX_REQUESTS=10
+RATE_LIMIT_WINDOW_MS=60000
+USAGE_TRACKER_MAX_EVENTS=10000
+USAGE_REPORT_TOKEN=...
 ```
 
 `.env` はGitへコミットしないでください。
@@ -132,11 +213,27 @@ npm run check
 
 ## Database
 
-現在のメッセージ保存先はSupabase PostgreSQLの `public.slack_messages` です。
+現在の主要な永続化対象はSupabase PostgreSQLです。
 
-メッセージ本文は暗号化された形式で保存し、スレッド検索用indexと `message_ts` のunique indexを利用しています。
+- `public.slack_messages` - 会話履歴
+- `public.conversation_summaries` - Conversation Summary
+- `public.usage_events` - AI Provider利用状況
 
-ファイルbinary自体は現在DBへ保存しません。必要になった場合はObject Storageを利用し、DBにはmetadataを保持する方針です。
+メッセージ本文などの会話データは暗号化して保存します。Usage Eventには原則として生成本文や検索本文を保存せず、Provider・token/credit・latency・エラーなどの運用メタデータを記録します。
+
+ファイルbinary自体はDBへ保存しません。永続化が必要になった場合はObject Storage + metadata方式を想定します。
+
+## Repository documentation
+
+```text
+README.md   リポジトリの入口、導入、使い方、現状、ロードマップ
+
+design/     機能・データ・API・DBなどの設計書
+
+ docs/       Architecture、開発手順、運用、Troubleshootingなどの技術ドキュメント
+```
+
+主な設計一覧は [`design/feature-design.yaml`](design/feature-design.yaml) に、アーキテクチャ説明は [`docs/architecture.md`](docs/architecture.md) にまとめています。
 
 ## Roadmap
 
@@ -146,8 +243,33 @@ Phase 1  責務分離                           ✅
 Phase 2  コンテキスト改善                   ✅
 Phase 3  Slack操作性                        ✅
 Phase 4  マルチモーダル / 外部コンテンツ     ✅
-Phase 5  Web検索                             ⏳
-Phase 6  運用改善                            ⏳
+Phase 5  Web検索                             ✅ 実装完了 / 実運用調整
+Phase 6  運用改善                            🚧 実装中
+Phase 7  品質・信頼性向上                    ⏳
 ```
 
-Phase 5ではWeb検索、Phase 6ではRate Limit・使用量・コスト・監視を予定しています。
+### Phase 6 remaining
+
+- Cost Calculator / pricing table
+- Monitoring / Alerting
+- Usage retention / aggregation policy
+- Rate Limitの分散環境対応
+- Usage Reportの運用強化
+
+### Phase 7 planned
+
+- Search Decisionの精度改善
+- Source quality / conflict handling
+- Prompt Injection hardening
+- Hallucination reduction
+- Answer quality evaluation
+
+## Design principles
+
+1. 外部サービス固有の形式をドメインモデルへ直接持ち込まない。
+2. Resolverは取得、Processorは変換、AdapterはLLM形式変換に限定する。
+3. 元データと派生Representationを区別する。
+4. 外部URL・検索結果は信頼しない。
+5. Usage計測は本処理と疎結合にし、永続化失敗でユーザー向け処理を壊さない。
+6. APIキーや認証情報をリポジトリへ保存しない。
+7. 将来のProvider / LLM / Storage追加を想定してインターフェースとFactoryを使う。
