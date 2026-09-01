@@ -27,13 +27,18 @@ export function parseShortcutPayload(rawPayload = {}) {
 }
 
 function buildInstruction(action, targetText) {
-  if (action === "detail") {
-    return `Expand the following Gemini response with more detail, context, and explanation. Preserve the original meaning and do not mention this instruction.\n\nResponse:\n${targetText}`;
+  switch (action) {
+    case "detail":
+      return `Expand the following Gemini response with more detail, context, and explanation. Preserve the original meaning and do not mention this instruction.\n\nResponse:\n${targetText}`;
+    case "concise":
+      return `Rewrite the following Gemini response to be shorter and more concise. Preserve all important information and do not mention this instruction.\n\nResponse:\n${targetText}`;
+    case "translate":
+      return `Translate the following Gemini response into Japanese. Preserve the meaning, technical terms, formatting, and code blocks. Do not add commentary or mention this instruction.\n\nResponse:\n${targetText}`;
+    case "regenerate":
+      return `Regenerate the following Gemini response from scratch. Answer the same underlying question with a fresh approach. Do not mention this instruction.\n\nPrevious response:\n${targetText}`;
+    default:
+      return null;
   }
-  if (action === "concise") {
-    return `Rewrite the following Gemini response to be shorter and more concise. Preserve all important information and do not mention this instruction.\n\nResponse:\n${targetText}`;
-  }
-  return null;
 }
 
 async function executeResponseTransformation({ action, channelId, threadTs, messageTs }) {
@@ -42,16 +47,8 @@ async function executeResponseTransformation({ action, channelId, threadTs, mess
   logger.info(`Shortcut ${action}: loaded ${messages.length} messages`);
 
   const target = messages.find(message => message.message_ts === messageTs);
-  if (!target) {
-    logger.warn(`Shortcut ${action}: target message not found ts=${messageTs}`);
-    return { executed: false, reason: "message_not_found" };
-  }
-
-  // conversationService stores Gemini responses with role="bot".
-  if (target.role !== "bot") {
-    logger.warn(`Shortcut ${action}: target message is not a Gemini response (role=${target.role})`);
-    return { executed: false, reason: "not_bot_message" };
-  }
+  if (!target) return { executed: false, reason: "message_not_found" };
+  if (target.role !== "bot") return { executed: false, reason: "not_bot_message" };
 
   const instruction = buildInstruction(action, target.text);
   if (!instruction) return { executed: false, reason: "not_implemented" };
@@ -61,25 +58,22 @@ async function executeResponseTransformation({ action, channelId, threadTs, mess
     contents: [{ role: "user", parts: [{ text: instruction }] }],
   });
 
-  const sent = await sendSlackMessage(channelId, threadTs, result.text);
-  if (!sent?.ok) {
-    logger.error(`Shortcut ${action}: Slack post failed: ${sent?.error || "unknown error"}`);
-    return { executed: false, reason: "slack_send_failed" };
-  }
+  const cleanReply = result.text || "（応答がありませんでした）";
+  const displayReply = `${cleanReply}\n\n---\n使用モデル: ${result.model}`;
+  const sent = await sendSlackMessage(channelId, threadTs, displayReply);
+  if (!sent?.ok) return { executed: false, reason: "slack_send_failed" };
 
-  const botTs = sent.ts || sent.message?.ts;
-  if (botTs) {
-    await saveMessage({
-      channel_id: channelId,
-      thread_ts: threadTs,
-      message_ts: botTs,
-      user_id: null,
-      role: "bot",
-      text: result.text,
-    });
-  }
+  const botTs = sent.ts || sent.message?.ts || String(Date.now() / 1000);
+  await saveMessage({
+    channel_id: channelId,
+    thread_ts: threadTs,
+    message_ts: botTs,
+    user_id: null,
+    role: "bot",
+    text: cleanReply,
+  });
 
-  logger.info(`Shortcut ${action}: completed (message_ts=${botTs || "unknown"})`);
+  logger.info(`Shortcut ${action}: completed (message_ts=${botTs})`);
   return { executed: true, result, slackMessage: sent };
 }
 
@@ -90,7 +84,7 @@ export async function handleSlackShortcut(payload) {
   if (!parsed.action) return { ...parsed, supported: false, reason: "unsupported_action" };
   if (!parsed.channelId || !parsed.messageTs) return { ...parsed, supported: false, reason: "missing_message_context" };
 
-  if (parsed.action === "detail" || parsed.action === "concise") {
+  if (["detail", "concise", "translate", "regenerate"].includes(parsed.action)) {
     const result = await executeResponseTransformation(parsed);
     return { ...parsed, supported: true, ...result };
   }
