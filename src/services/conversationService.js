@@ -8,41 +8,12 @@ import { buildPrompt } from "./gemini/promptBuilder.js";
 import { resolveMessageContents } from "./content/messageContentResolver.js";
 import { adaptContentsToGeminiParts } from "./content/adapters/geminiContentAdapter.js";
 import { ContentError } from "./content/contentErrors.js";
-import { SearchService } from "./search/searchService.js";
+import { createConfiguredSearchService } from "./search/searchServiceFactory.js";
 import { decideSearch } from "./search/searchDecision.js";
-import { tavilySearchProvider } from "./search/providers/tavilyProvider.js";
-import { exaSearchProvider } from "./search/providers/exaProvider.js";
-import { youSearchProvider } from "./search/providers/youProvider.js";
 import { selectEvidence, buildSelectedEvidenceText } from "./search/evidenceSelector.js";
-import { buildSearchSources } from "./search/searchContextBuilder.js";
 
 const DEFAULT_HISTORY_LIMIT = 10;
 const DEFAULT_MAX_USER_MESSAGE_LENGTH = 4000;
-
-function isConfigured(name) {
-  if (name === "tavily") return Boolean(process.env.TAVILY_API_KEY) && process.env.SEARCH_TAVILY_ENABLED !== "false";
-  if (name === "exa") return Boolean(process.env.EXA_API_KEY) && process.env.SEARCH_EXA_ENABLED !== "false";
-  if (name === "you") return Boolean(process.env.YDC_API_KEY) && process.env.SEARCH_YOU_ENABLED !== "false";
-  return false;
-}
-
-function getSearchProviders() {
-  const providers = [
-    ["tavily", tavilySearchProvider],
-    ["exa", exaSearchProvider],
-    ["you", youSearchProvider],
-  ];
-  const configured = providers.filter(([name]) => isConfigured(name)).map(([, provider]) => provider);
-  return configured;
-}
-
-function createSearchService() {
-  const providers = getSearchProviders();
-  if (providers.length === 0) return null;
-  return new SearchService({ providers });
-}
-
-const searchService = createSearchService();
 
 export async function handleAppMention(event) {
   const safeEvent = event || {};
@@ -120,7 +91,9 @@ export async function handleAppMention(event) {
   let searchSources = [];
 
   if (searchDecision.shouldSearch) {
+    const searchService = createConfiguredSearchService();
     if (!searchService) {
+      logger.warn("Web search requested but no search provider is configured");
       await sendSlackMessage(channelId, threadTs, "Web検索が設定されていません。検索APIのキーを設定してください。");
       return;
     }
