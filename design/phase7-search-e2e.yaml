@@ -1,0 +1,53 @@
+phase: 7
+name: search-e2e-validation
+status: implemented
+purpose: >-
+  Verify the search-answer path as one deterministic pipeline without requiring
+  external provider APIs, Gemini credentials, or Supabase credentials.
+
+pipeline:
+  - search_decision
+  - search_provider
+  - evidence_selection
+  - source_attribution
+  - answer_generation
+  - citation_coverage
+  - source_conflict
+  - quality_score
+
+implementation:
+  service: src/services/search/searchAnswerPipeline.js
+  test: test/searchAnswerPipeline.test.js
+
+contracts:
+  search_provider:
+    injected: true
+    required_method: search
+  answer_generator:
+    injected: true
+    required_method: generateAnswer
+  database: not_required
+  external_api_keys: not_required
+
+cases:
+  - name: normal_search_answer
+    verifies:
+      - search decision triggers
+      - provider is called
+      - evidence is selected
+      - S1/S2 attribution is assigned
+      - citation coverage is evaluated
+      - quality score is produced
+  - name: non_search_question
+    verifies:
+      - provider is not called
+      - citation evaluation is skipped
+  - name: invalid_citation
+    verifies:
+      - unknown source IDs are detected
+      - answer is marked low quality
+      - invalid_citation flag is produced
+
+notes:
+  - This is an integration-style deterministic test, not a live external-service E2E test.
+  - Live provider and Gemini tests remain separate so CI stays free of API costs.
