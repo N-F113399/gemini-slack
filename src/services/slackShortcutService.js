@@ -1,5 +1,6 @@
 import logger from "../utils/logger.js";
 import { getLatestReplies, saveMessage } from "./messageStore.js";
+import { summarizeThread } from "./conversationSummaryService.js";
 import { generate } from "./gemini/geminiService.js";
 import { sendSlackMessage } from "./slackService.js";
 
@@ -80,12 +81,32 @@ async function executeResponseTransformation({ action, channelId, threadTs, mess
   return { executed: true, result, slackMessage: sent };
 }
 
+async function executeSummarize({ channelId, threadTs }) {
+  logger.info(`Shortcut summarize: updating summary channel=${channelId} thread=${threadTs}`);
+  const result = await summarizeThread({ channel_id: channelId, thread_ts: threadTs });
+
+  if (!result) return { executed: false, reason: "summary_failed" };
+
+  const label = result.reused ? "Current conversation summary" : "Conversation summary";
+  const displayReply = `${label}\n\n${result.summary}\n\n---\n使用モデル: ${result.result?.model || "保存済みSummary"}`;
+  const sent = await sendSlackMessage(channelId, threadTs, displayReply);
+  if (!sent?.ok) return { executed: false, reason: "slack_send_failed" };
+
+  logger.info(`Shortcut summarize: completed (message_count=${result.messageCount})`);
+  return { executed: true, result, slackMessage: sent };
+}
+
 export async function handleSlackShortcut(payload) {
   const parsed = parseShortcutPayload(payload);
   logger.info(`Message shortcut received: ${parsed.action || "unknown"} (callback_id=${parsed.callbackId || "none"})`);
 
   if (!parsed.action) return { ...parsed, supported: false, reason: "unsupported_action" };
   if (!parsed.channelId || !parsed.messageTs) return { ...parsed, supported: false, reason: "missing_message_context" };
+
+  if (parsed.action === "summarize") {
+    const result = await executeSummarize(parsed);
+    return { ...parsed, supported: true, ...result };
+  }
 
   if (["detail", "concise", "translate", "translate_en", "regenerate"].includes(parsed.action)) {
     const result = await executeResponseTransformation(parsed);
