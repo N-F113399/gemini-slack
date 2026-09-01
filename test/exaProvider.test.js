@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ExaSearchProvider } from "../src/services/search/providers/exaProvider.js";
-import { createSearchQuery, SEARCH_ERROR_CODES } from "../src/services/search/searchModels.js";
+import { createSearchQuery } from "../src/services/search/searchModels.js";
+import { SEARCH_ERROR_CODES } from "../src/services/search/searchErrors.js";
 import { SearchProviderError } from "../src/services/search/searchErrors.js";
 
 const query = createSearchQuery({ text: "latest AI news", maxResults: 2 });
