@@ -1,5 +1,6 @@
 import { createSearchQuery } from "./searchModels.js";
 import { SearchProviderError, SEARCH_ERROR_CODES } from "./searchErrors.js";
+import { usageTracker as defaultUsageTracker } from "../usage/usageTracker.js";
 
 const DEFAULT_MAX_QUERY_LENGTH = 500;
 const DEFAULT_MAX_RESULTS = 5;
@@ -36,12 +37,20 @@ function validateSearchLimits(query) {
   }
 }
 
+function providerName(provider) {
+  return provider?.name || "unknown";
+}
+
 export class SearchService {
-  constructor({ providers = [] } = {}) {
+  constructor({ providers = [], usageTracker = defaultUsageTracker } = {}) {
     if (!Array.isArray(providers) || providers.length === 0) {
       throw new TypeError("At least one search provider is required");
     }
+    if (!usageTracker || typeof usageTracker.record !== "function") {
+      throw new TypeError("usageTracker.record must be a function");
+    }
     this.providers = Object.freeze([...providers]);
+    this.usageTracker = usageTracker;
   }
 
   async search(queryInput) {
@@ -60,10 +69,46 @@ export class SearchService {
       if (attempts >= maxProviderAttempts) break;
       attempts += 1;
 
+      const startedAt = Date.now();
+      const name = providerName(provider);
+
       try {
-        return await provider.search(query);
+        const response = await provider.search(query);
+        const latencyMs = Date.now() - startedAt;
+        this.usageTracker.record({
+          provider: name,
+          service: "search",
+          operation: "search",
+          success: true,
+          latencyMs,
+          credits: response?.usage?.credits,
+          requests: response?.usage?.requests ?? 1,
+          metadata: {
+            query: query.text,
+            requestId: response?.provider?.requestId ?? null,
+            resultCount: response?.results?.length ?? 0,
+          },
+        });
+        return response;
       } catch (error) {
         lastError = error;
+        const latencyMs = Date.now() - startedAt;
+        this.usageTracker.record({
+          provider: name,
+          service: "search",
+          operation: "search",
+          success: false,
+          latencyMs,
+          requests: 1,
+          metadata: {
+            query: query.text,
+            errorCode: error?.code || null,
+            status: error?.status || null,
+            retryable: error?.retryable ?? false,
+            quotaRelated: error?.quotaRelated ?? false,
+          },
+        });
+
         if (error instanceof SearchProviderError) {
           if (error.quotaRelated || error.retryable) continue;
           throw error;
