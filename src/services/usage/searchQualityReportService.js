@@ -1,5 +1,3 @@
-import supabase from "../db.js";
-
 function normalizeDate(value, name) {
   if (value === null || value === undefined || value === "") return null;
   const date = new Date(value);
@@ -69,8 +67,9 @@ export function aggregateSearchQualityRows(rows = []) {
   };
 }
 
-export async function getSearchQualityReport({ from = null, to = null } = {}) {
+export async function getSearchQualityReport({ from = null, to = null, dbClient = null } = {}) {
   const range = normalizeRange({ from, to });
+  const supabase = dbClient || (await import("../db.js")).default;
   const { data, error } = await supabase
     .from("usage_events")
     .select("occurred_at,provider,service,operation,metadata")
