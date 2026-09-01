@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { YouSearchProvider } from "../src/services/search/providers/youProvider.js";
-import { createSearchQuery, SEARCH_ERROR_CODES, SEARCH_RESULT_TYPES } from "../src/services/search/searchModels.js";
-import { SearchProviderError } from "../src/services/search/searchErrors.js";
+import { createSearchQuery, SEARCH_RESULT_TYPES } from "../src/services/search/searchModels.js";
+import { SEARCH_ERROR_CODES, SearchProviderError } from "../src/services/search/searchErrors.js";
 
 const provider = new YouSearchProvider();
 
