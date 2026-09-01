@@ -1,7 +1,6 @@
 import { createSearchQuery } from "./searchModels.js";
 import { SearchProviderError, SEARCH_ERROR_CODES } from "./searchErrors.js";
 import { usageTracker as defaultUsageTracker } from "../usage/usageTracker.js";
-import { calculateUsageCost } from "../usage/costCalculator.js";
 
 const DEFAULT_MAX_QUERY_LENGTH = 500;
 const DEFAULT_MAX_RESULTS = 5;
@@ -59,7 +58,6 @@ export class SearchService {
         const credits = response?.usage?.credits;
         const requests = response?.usage?.requests ?? 1;
         const resultCount = response?.results?.length ?? 0;
-        const cost = calculateUsageCost({ provider: name, service: "search", credits, requests, resultCount });
         this.usageTracker.record({
           provider: name,
           service: "search",
@@ -68,7 +66,6 @@ export class SearchService {
           latencyMs,
           credits,
           requests,
-          estimatedCostUsd: cost,
           metadata: { requestId: response?.provider?.requestId ?? null, resultCount },
         });
         return response;
@@ -82,7 +79,6 @@ export class SearchService {
           success: false,
           latencyMs,
           requests: 1,
-          estimatedCostUsd: calculateUsageCost({ provider: name, service: "search", requests: 1 }),
           metadata: {
             errorCode: error?.code || null,
             status: error?.status || null,
