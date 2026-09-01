@@ -40,5 +40,5 @@ export async function generateContent({ modelName, contents, systemPrompt, timeo
     };
   }
 
-  return { res, data };
+  return { res, data, usageMetadata: data?.usageMetadata || null };
 }
