@@ -8,9 +8,14 @@ import { buildPrompt } from "./gemini/promptBuilder.js";
 import { resolveMessageContents } from "./content/messageContentResolver.js";
 import { adaptContentsToGeminiParts } from "./content/adapters/geminiContentAdapter.js";
 import { ContentError } from "./content/contentErrors.js";
+import { SearchService } from "./search/searchService.js";
+import { decideSearch } from "./search/searchDecision.js";
+import { tavilySearchProvider } from "./search/providers/tavilyProvider.js";
+import { buildSearchContext } from "./search/searchContextBuilder.js";
 
 const DEFAULT_HISTORY_LIMIT = 10;
 const DEFAULT_MAX_USER_MESSAGE_LENGTH = 4000;
+const searchService = new SearchService({ providers: [tavilySearchProvider] });
 
 export async function handleAppMention(event) {
   const safeEvent = event || {};
@@ -83,13 +88,33 @@ export async function handleAppMention(event) {
     logger.error("Failed to build conversation context: " + err.message);
   }
 
-  let inputParts = [];
+  const searchDecision = decideSearch(userMessage);
+  const inputParts = [];
+
+  if (searchDecision.shouldSearch) {
+    try {
+      logger.info(`🔎 Web search requested: reason=${searchDecision.reason} query=${searchDecision.query}`);
+      const searchResponse = await searchService.search({
+        text: searchDecision.query,
+        language: "ja",
+        maxResults: 5,
+      });
+      const searchContext = buildSearchContext(searchResponse);
+      if (searchContext) inputParts.push({ text: searchContext });
+      logger.info(`🔎 Web search completed: provider=${searchResponse.provider.name} results=${searchResponse.results.length}`);
+    } catch (err) {
+      logger.error(`Web search failed: ${err.message}`);
+      await sendSlackMessage(channelId, threadTs, "Web検索に失敗しました。検索サービスの設定または利用状況を確認してください。");
+      return;
+    }
+  }
+
   try {
     const resolved = await resolveMessageContents({
       files: safeEvent.files || [],
       text: userMessage,
     });
-    inputParts = adaptContentsToGeminiParts(resolved.contents);
+    inputParts.push(...adaptContentsToGeminiParts(resolved.contents));
     logger.info(`📎 Prepared ${resolved.fileCount} attachment(s) and ${resolved.urlCount} URL(s) for Gemini`);
 
     if (resolved.unsupportedFiles.length > 0) {
