@@ -43,7 +43,7 @@ function aggregate(rows) {
     item.outputTokens += Number(row.output_tokens) || 0;
     item.totalTokens += Number(row.total_tokens) || 0;
     item.credits += Number(row.credits) || 0;
-    item.searchRequests += Number(row.search_requests) || 0;
+    item.searchRequests += Number(row.request_count) || 0;
     item.estimatedCostUsd += Number(row.estimated_cost_usd) || 0;
     if (row.latency_ms !== null && row.latency_ms !== undefined) {
       item.latencyMsTotal += Number(row.latency_ms) || 0;
@@ -63,10 +63,10 @@ export async function getUsageReport({ from = null, to = null } = {}) {
   const range = normalizeRange({ from, to });
   const { data, error } = await supabase
     .from("usage_events")
-    .select("created_at,provider,service,success,latency_ms,input_tokens,output_tokens,total_tokens,credits,search_requests,estimated_cost_usd")
-    .gte("created_at", range.start.toISOString())
-    .lte("created_at", range.end.toISOString())
-    .order("created_at", { ascending: true });
+    .select("occurred_at,provider,service,success,latency_ms,input_tokens,output_tokens,total_tokens,credits,request_count,estimated_cost_usd")
+    .gte("occurred_at", range.start.toISOString())
+    .lte("occurred_at", range.end.toISOString())
+    .order("occurred_at", { ascending: true });
 
   if (error) throw error;
 
