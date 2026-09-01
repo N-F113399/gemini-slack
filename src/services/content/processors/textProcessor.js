@@ -1,5 +1,6 @@
 import { REPRESENTATION_TYPES } from "../contentTypes.js";
 import { CONTENT_ERROR_CODES, ContentError } from "../contentErrors.js";
+import { truncateContentText } from "../contentLimits.js";
 
 export const SUPPORTED_TEXT_MIME_TYPES = Object.freeze([
   "text/plain",
@@ -42,16 +43,25 @@ export function processTextContent(content) {
     );
   }
 
-  const text = Buffer.from(binary.data).toString("utf8");
+  const sourceText = Buffer.from(binary.data).toString("utf8");
+  const normalized = truncateContentText(sourceText);
+
   return {
     ...content,
     representations: [
       ...(content.representations || []),
-      { type: REPRESENTATION_TYPES.TEXT, mimeType, text },
+      {
+        type: REPRESENTATION_TYPES.TEXT,
+        mimeType,
+        text: normalized.text,
+        truncated: normalized.truncated,
+        originalLength: normalized.originalLength,
+      },
     ],
     metadata: {
       ...(content.metadata || {}),
       processedAs: "text",
+      textTruncated: normalized.truncated,
     },
   };
 }
