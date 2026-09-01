@@ -21,7 +21,7 @@ function formatMessages(messages) {
     .join("\n");
 }
 
-function buildSummaryPrompt({ previousSummary, messages }) {
+export function buildSummaryPrompt({ previousSummary, messages }) {
   const summarySection = previousSummary
     ? `Previous conversation summary:\n${previousSummary}\n\n`
     : "";
@@ -36,6 +36,13 @@ function buildSummaryPrompt({ previousSummary, messages }) {
     "Conversation messages:",
     formatMessages(messages),
   ].join("\n");
+}
+
+export function shouldUpdateSummary({ messageCount, summarizedCount, triggerMessages, updateInterval }) {
+  if (messageCount < triggerMessages) return false;
+  if (messageCount <= summarizedCount) return false;
+  if (summarizedCount > 0 && messageCount - summarizedCount < updateInterval) return false;
+  return true;
 }
 
 /**
@@ -59,9 +66,9 @@ export async function updateSummaryIfNeeded({ channel_id, thread_ts }) {
     const summarizedCount = existingSummary?.message_count || 0;
     const messageCount = messages.length;
 
-    if (messageCount < triggerMessages) return false;
-    if (messageCount <= summarizedCount) return false;
-    if (summarizedCount > 0 && messageCount - summarizedCount < updateInterval) return false;
+    if (!shouldUpdateSummary({ messageCount, summarizedCount, triggerMessages, updateInterval })) {
+      return false;
+    }
 
     const newMessages = messages.slice(summarizedCount);
     if (newMessages.length === 0) return false;
