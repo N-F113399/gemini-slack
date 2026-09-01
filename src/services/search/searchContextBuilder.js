@@ -51,7 +51,6 @@ export function buildSearchSources(response, maxResults = 5) {
     index: index + 1,
     title: item.result?.source?.title || item.result?.source?.url || `Source ${index + 1}`,
     url: item.result?.source?.url || null,
-    domain: item.domain,
-    qualityScore: item.qualityScore,
+    provider: item.result?.source?.provider || null,
   }));
 }
