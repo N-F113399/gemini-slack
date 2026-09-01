@@ -1,0 +1,61 @@
+version: 1
+document:
+  title: "Free Usage Quota Design"
+  description: "無料枠を前提としたProvider/LLM使用量の可視化設計"
+  format: "normalized-yaml-for-spreadsheet-conversion"
+  branch: "phase4/content-foundation"
+
+principles:
+  - "有料コスト計算は行わない"
+  - "Provider固有の無料枠単位をそのまま記録する"
+  - "無料枠が変動または公開上限を固定できない場合は設定値として扱う"
+  - "usage eventには実使用量と失敗状況を保存する"
+  - "quota reportはused/limit/remaining/utilization/resetAtを返す"
+
+providers:
+  - provider: "tavily"
+    service: "search"
+    period: "month"
+    unit: "credits"
+    free_limit: 1000
+    source: "https://www.tavily.com/pricing"
+    note: "Free Researcher plan。creditsは検索以外の操作でも消費され得るため、usage eventのcreditsを集計する。"
+
+  - provider: "you"
+    service: "search"
+    period: "day"
+    unit: "requests"
+    free_limit: 100
+    source: "https://about.you.com/pricing"
+    note: "Web Search API free tier。"
+
+  - provider: "exa"
+    service: "search"
+    period: "month"
+    unit: "configurable"
+    free_limit: null
+    source: "https://exa.ai/pricing?tab=api"
+    note: "無料枠は月額free creditsとして提供され、Endpoint/usageにより消費量が異なるため固定request上限へ換算しない。必要ならEXA_FREE_QUOTA_*で設定する。"
+
+  - provider: "gemini"
+    service: "gemini"
+    period: "configurable"
+    unit: "configurable"
+    free_limit: null
+    source: "https://ai.google.dev/gemini-api/docs/rate-limits"
+    note: "RPM/TPM/RPDなどモデル・プロジェクト条件で変動するため、公開固定値をアプリへハードコードしない。"
+
+report:
+  endpoint: "GET /usage/quota"
+  authentication: "Bearer token via USAGE_REPORT_TOKEN"
+  fields:
+    - provider
+    - service
+    - period
+    - unit
+    - limit
+    - used
+    - remaining
+    - utilization
+    - resetAt
+    - source
