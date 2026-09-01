@@ -54,6 +54,18 @@ function authorityScore(domain) {
   return 0;
 }
 
+function claimMarkers(text) {
+  return new Set((text.match(/\b\d+(?:\.\d+)?\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(?:jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b/gi) || []).map(value => value.toLowerCase()));
+}
+
+function hasContradictoryClaims(left, right) {
+  if (left.size === 0 || right.size === 0) return false;
+  return [...left].some(marker => {
+    if (/^\d/.test(marker) && right.has(marker)) return false;
+    return false;
+  }) || (left.size > 0 && right.size > 0 && [...left].some(marker => !right.has(marker)) && [...right].some(marker => !left.has(marker)));
+}
+
 export function evaluateSearchSources(results = [], {
   preferredDomains = [],
   now = Date.now(),
@@ -130,6 +142,7 @@ export function detectSourceConflicts(evaluatedSources = [], {
     ...item,
     titleTokens: tokenSet(titleText(item.result)),
     evidenceTokens: tokenSet(evidenceText(item.result)),
+    claimMarkers: claimMarkers(evidenceText(item.result)),
   }));
 
   const conflicts = [];
@@ -137,12 +150,14 @@ export function detectSourceConflicts(evaluatedSources = [], {
     for (let j = i + 1; j < normalized.length; j += 1) {
       const titleSimilarity = jaccard(normalized[i].titleTokens, normalized[j].titleTokens);
       const evidenceSimilarity = jaccard(normalized[i].evidenceTokens, normalized[j].evidenceTokens);
+      const contradictoryClaims = hasContradictoryClaims(normalized[i].claimMarkers, normalized[j].claimMarkers);
 
-      if (titleSimilarity >= titleSimilarityThreshold && evidenceSimilarity < evidenceSimilarityThreshold) {
+      if (titleSimilarity >= titleSimilarityThreshold && (evidenceSimilarity < evidenceSimilarityThreshold || contradictoryClaims)) {
         conflicts.push({
           sourceIds: [normalized[i].result?.id || i, normalized[j].result?.id || j],
           titleSimilarity,
           evidenceSimilarity,
+          contradictoryClaims,
           guidance: "Sources appear to discuss the same topic but provide materially different evidence.",
         });
       }
