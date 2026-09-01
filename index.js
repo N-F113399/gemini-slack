@@ -1,11 +1,11 @@
 import dotenv from "dotenv";
 import express from "express";
 import bodyParser from "body-parser";
-// import dotenv from "dotenv";
 import logger from "./src/utils/logger.js";
 import { checkEnvVars } from "./src/config/envCheck.js";
 import { handleError } from "./src/utils/errorHandler.js";
 import slackEventsRouter from "./src/routes/slackEvent.js";
+import slackCommandsRouter from "./src/routes/slackCommand.js";
 
 dotenv.config();
 checkEnvVars();
@@ -13,6 +13,7 @@ checkEnvVars();
 const app = express();
 app.use(bodyParser.json());
 app.use("/slack/events", slackEventsRouter);
+app.use("/slack/commands", slackCommandsRouter);
 
 // グローバルエラーハンドラ
 app.use((err, req, res, next) => {
