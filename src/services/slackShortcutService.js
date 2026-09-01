@@ -37,31 +37,49 @@ function buildInstruction(action, targetText) {
 }
 
 async function executeResponseTransformation({ action, channelId, threadTs, messageTs }) {
+  logger.info(`Shortcut ${action}: loading messages channel=${channelId} thread=${threadTs}`);
   const messages = await getLatestReplies(channelId, threadTs, 50);
-  const target = messages.find(message => message.message_ts === messageTs);
+  logger.info(`Shortcut ${action}: loaded ${messages.length} messages`);
 
-  if (!target) return { executed: false, reason: "message_not_found" };
-  if (target.role !== "assistant") return { executed: false, reason: "not_bot_message" };
+  const target = messages.find(message => message.message_ts === messageTs);
+  if (!target) {
+    logger.warn(`Shortcut ${action}: target message not found ts=${messageTs}`);
+    return { executed: false, reason: "message_not_found" };
+  }
+
+  // conversationService stores Gemini responses with role="bot".
+  if (target.role !== "bot") {
+    logger.warn(`Shortcut ${action}: target message is not a Gemini response (role=${target.role})`);
+    return { executed: false, reason: "not_bot_message" };
+  }
 
   const instruction = buildInstruction(action, target.text);
   if (!instruction) return { executed: false, reason: "not_implemented" };
 
+  logger.info(`Shortcut ${action}: generating transformed response`);
   const result = await generate({
     contents: [{ role: "user", parts: [{ text: instruction }] }],
   });
 
   const sent = await sendSlackMessage(channelId, threadTs, result.text);
-  if (!sent?.ok) return { executed: false, reason: "slack_send_failed" };
+  if (!sent?.ok) {
+    logger.error(`Shortcut ${action}: Slack post failed: ${sent?.error || "unknown error"}`);
+    return { executed: false, reason: "slack_send_failed" };
+  }
 
-  await saveMessage({
-    channel_id: channelId,
-    thread_ts: threadTs,
-    message_ts: sent.ts,
-    user_id: null,
-    role: "assistant",
-    text: result.text,
-  });
+  const botTs = sent.ts || sent.message?.ts;
+  if (botTs) {
+    await saveMessage({
+      channel_id: channelId,
+      thread_ts: threadTs,
+      message_ts: botTs,
+      user_id: null,
+      role: "bot",
+      text: result.text,
+    });
+  }
 
+  logger.info(`Shortcut ${action}: completed (message_ts=${botTs || "unknown"})`);
   return { executed: true, result, slackMessage: sent };
 }
 
