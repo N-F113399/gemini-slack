@@ -7,6 +7,7 @@ import { handleError } from "./src/utils/errorHandler.js";
 import slackEventsRouter from "./src/routes/slackEvent.js";
 import slackCommandsRouter from "./src/routes/slackCommand.js";
 import slackShortcutRouter from "./src/routes/slackShortcut.js";
+import usageRouter from "./src/routes/usage.js";
 import { usageTracker } from "./src/services/usage/usageTracker.js";
 
 dotenv.config();
@@ -21,6 +22,7 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use("/slack/events", slackEventsRouter);
 app.use("/slack/commands", slackCommandsRouter);
 app.use("/slack/shortcuts", slackShortcutRouter);
+app.use("/usage", usageRouter);
 
 // グローバルエラーハンドラ
 app.use((err, req, res, next) => {
