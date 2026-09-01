@@ -28,8 +28,9 @@ export function aggregateSearchQualityRows(rows = []) {
   };
 
   for (const row of rows) {
-    const quality = row?.metadata?.qualityEvaluation || row?.metadata?.quality || null;
-    const citation = quality?.citationCoverage || row?.metadata?.citationCoverage || null;
+    const metadata = row?.metadata || {};
+    const quality = metadata.qualityEvaluation || metadata.qualityScore || metadata.quality || null;
+    const citation = quality?.citationCoverage || metadata.citationCoverage || null;
     if (!quality && !citation) continue;
 
     result.evaluatedAnswers += 1;
