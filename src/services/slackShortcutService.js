@@ -3,7 +3,7 @@ import { getLatestReplies, saveMessage } from "./messageStore.js";
 import { generate } from "./gemini/geminiService.js";
 import { sendSlackMessage } from "./slackService.js";
 
-const ACTIONS = new Set(["detail", "concise", "translate", "regenerate", "rewrite", "summarize"]);
+const ACTIONS = new Set(["detail", "concise", "translate", "translate_en", "regenerate", "rewrite", "summarize"]);
 
 function decodePayload(payload) {
   if (typeof payload === "object" && payload !== null) return payload;
@@ -33,7 +33,9 @@ function buildInstruction(action, targetText) {
     case "concise":
       return `Rewrite the following Gemini response to be shorter and more concise. Preserve all important information and do not mention this instruction.\n\nResponse:\n${targetText}`;
     case "translate":
-      return `Translate the following Gemini response into Japanese. Preserve the meaning, technical terms, formatting, and code blocks. Do not add commentary or mention this instruction.\n\nResponse:\n${targetText}`;
+      return `Translate the following Gemini response into Japanese. Use natural Japanese appropriate to the context. Preserve the meaning, technical terms, formatting, and code blocks. Do not translate code, identifiers, or URLs. Do not add commentary or mention this instruction.\n\nResponse:\n${targetText}`;
+    case "translate_en":
+      return `Translate the following Gemini response into natural, fluent English. Prioritize idiomatic English expressions over a literal word-for-word translation while preserving the original meaning, nuance, intent, and level of formality. Preserve technical terms, formatting, and code blocks where appropriate. Do not translate code, identifiers, or URLs. Do not add commentary or mention this instruction.\n\nResponse:\n${targetText}`;
     case "regenerate":
       return `Regenerate the following Gemini response from scratch. Answer the same underlying question with a fresh approach. Do not mention this instruction.\n\nPrevious response:\n${targetText}`;
     default:
@@ -84,7 +86,7 @@ export async function handleSlackShortcut(payload) {
   if (!parsed.action) return { ...parsed, supported: false, reason: "unsupported_action" };
   if (!parsed.channelId || !parsed.messageTs) return { ...parsed, supported: false, reason: "missing_message_context" };
 
-  if (["detail", "concise", "translate", "regenerate"].includes(parsed.action)) {
+  if (["detail", "concise", "translate", "translate_en", "regenerate"].includes(parsed.action)) {
     const result = await executeResponseTransformation(parsed);
     return { ...parsed, supported: true, ...result };
   }
