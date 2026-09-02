@@ -1,7 +1,7 @@
 import logger from "../utils/logger.js";
 
-const requiredAtStartup = ["SLACK_BOT_TOKEN", "GEMINI_API_KEY", "SYSTEM_PROMPT"];
-const optionalEnvVars = ["SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_ENC_KEY"];
+const requiredAtStartup = ["SLACK_BOT_TOKEN", "GEMINI_API_KEY", "SYSTEM_PROMPT", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ENC_KEY"];
+const optionalEnvVars = ["SUPABASE_KEY"];
 
 export function checkEnvVars() {
   const allowMissingForTests =
@@ -23,7 +23,7 @@ export function checkEnvVars() {
   }
 
   if (missingOptional.length > 0) {
-    logger.warn(`Optional environment variables are missing: ${missingOptional.join(", ")}`);
+    logger.debug(`Optional environment variables are missing: ${missingOptional.join(", ")}`);
   } else {
     logger.info("✅ All optional environment variables are present.");
   }
