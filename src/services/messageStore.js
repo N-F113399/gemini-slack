@@ -50,19 +50,25 @@ export async function saveMessage({ channel_id, thread_ts, message_ts, user_id =
 }
 
 /**
- * Get latest N replies (decrypted). Returns array ordered oldest->newest by default if reverse=false
+ * Get latest N replies (decrypted). Returns array ordered oldest->newest by default if reverse=false.
+ * Pass null/undefined for limit to retrieve the full matching history.
  */
 export async function getLatestReplies(channel_id, thread_ts, limit = 10, reverse = true) {
   try {
     const supabase = await getSupabase();
-    const { data, error } = await supabase
+    let query = supabase
       .from("slack_messages")
       .select("channel_id,thread_ts,message_ts,user_id,role,text_cipher,iv,auth_tag,enc_version,created_at")
       .eq("channel_id", channel_id)
       .eq("thread_ts", thread_ts)
       .neq("role", "") // safety
-      .order("created_at", { ascending: false }) // newest first
-      .limit(limit);
+      .order("created_at", { ascending: false }); // newest first
+
+    if (Number.isInteger(limit) && limit > 0) {
+      query = query.limit(limit);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       logger.error("Supabase select error: " + error.message);
@@ -71,7 +77,7 @@ export async function getLatestReplies(channel_id, thread_ts, limit = 10, revers
 
     // data is newest->oldest, we want oldest->newest to feed AI in order
     const rows = data || [];
-    const ordered = rows.reverse(); // now oldest->newest
+    const ordered = reverse ? rows.reverse() : rows;
 
     // decrypt each
     const results = ordered.map(row => {
