@@ -1,6 +1,15 @@
-import supabase from "./db.js";
+// src/services/conversationSummaryStore.js
 import logger from "../utils/logger.js";
 import { encryptText, decryptText } from "../utils/crypto.js";
+
+let supabasePromise;
+
+async function getSupabase() {
+  if (!supabasePromise) {
+    supabasePromise = import("./db.js").then(module => module.default);
+  }
+  return supabasePromise;
+}
 
 function buildAad(channel_id, thread_ts) {
   return `${channel_id}|${thread_ts}|summary`;
@@ -12,6 +21,7 @@ function buildAad(channel_id, thread_ts) {
  */
 export async function getSummary(channel_id, thread_ts) {
   try {
+    const supabase = await getSupabase();
     const { data, error } = await supabase
       .from("conversation_summaries")
       .select("channel_id,thread_ts,summary_cipher,iv,auth_tag,enc_version,message_count,created_at,updated_at")
@@ -57,6 +67,7 @@ export async function getSummary(channel_id, thread_ts) {
  */
 export async function saveSummary({ channel_id, thread_ts, summary, message_count = 0 }) {
   try {
+    const supabase = await getSupabase();
     const aad = buildAad(channel_id, thread_ts);
     const { ciphertext, iv, authTag } = encryptText(summary, aad);
 
