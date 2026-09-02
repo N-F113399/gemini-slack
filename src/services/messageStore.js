@@ -1,7 +1,15 @@
 // src/services/messageStore.js
-import supabase from "./db.js";
 import logger from "../utils/logger.js";
 import { encryptText, decryptText } from "../utils/crypto.js";
+
+let supabasePromise;
+
+async function getSupabase() {
+  if (!supabasePromise) {
+    supabasePromise = import("./db.js").then(module => module.default);
+  }
+  return supabasePromise;
+}
 
 /**
  * Save message (encrypt text before insert)
@@ -9,6 +17,7 @@ import { encryptText, decryptText } from "../utils/crypto.js";
  */
 export async function saveMessage({ channel_id, thread_ts, message_ts, user_id = null, role = "user", text = "" }) {
   try {
+    const supabase = await getSupabase();
     // AAD に thread context を含める（optional but recommended）
     const aad = `${channel_id}|${thread_ts}|${message_ts}`;
 
@@ -45,6 +54,7 @@ export async function saveMessage({ channel_id, thread_ts, message_ts, user_id =
  */
 export async function getLatestReplies(channel_id, thread_ts, limit = 10, reverse = true) {
   try {
+    const supabase = await getSupabase();
     const { data, error } = await supabase
       .from("slack_messages")
       .select("channel_id,thread_ts,message_ts,user_id,role,text_cipher,iv,auth_tag,enc_version,created_at")
