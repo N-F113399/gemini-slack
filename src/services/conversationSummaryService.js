@@ -30,14 +30,15 @@ async function generateAndSaveSummary({ channel_id, thread_ts, messages, previou
   }
 
   const messageCount = previousSummary?.message_count || 0;
+  const summarizedMessageCount = messageCount + messages.length;
   const saved = await saveSummary({
     channel_id,
     thread_ts,
     summary,
-    message_count: Math.max(messageCount, messages.length),
+    message_count: summarizedMessageCount,
   });
 
-  return saved ? { summary, messageCount: Math.max(messageCount, messages.length), result } : null;
+  return saved ? { summary, messageCount: summarizedMessageCount, result } : null;
 }
 
 export async function updateSummaryIfNeeded({ channel_id, thread_ts }) {
@@ -45,7 +46,7 @@ export async function updateSummaryIfNeeded({ channel_id, thread_ts }) {
     const triggerMessages = getPositiveIntegerEnv("SUMMARY_TRIGGER_MESSAGES", DEFAULT_TRIGGER_MESSAGES);
     const updateInterval = getPositiveIntegerEnv("SUMMARY_UPDATE_INTERVAL", DEFAULT_UPDATE_INTERVAL);
     const existingSummary = await getSummary(channel_id, thread_ts);
-    const messages = await getLatestReplies(channel_id, thread_ts, Number.MAX_SAFE_INTEGER);
+    const messages = await getLatestReplies(channel_id, thread_ts, null);
     const summarizedCount = existingSummary?.message_count || 0;
     const messageCount = messages.length;
 
@@ -77,7 +78,7 @@ export async function updateSummaryIfNeeded({ channel_id, thread_ts }) {
  */
 export async function summarizeThread({ channel_id, thread_ts }) {
   const existingSummary = await getSummary(channel_id, thread_ts);
-  const messages = await getLatestReplies(channel_id, thread_ts, Number.MAX_SAFE_INTEGER);
+  const messages = await getLatestReplies(channel_id, thread_ts, null);
 
   if (messages.length === 0) return null;
 
