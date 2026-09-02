@@ -1,7 +1,7 @@
 import logger from "../utils/logger.js";
 
-const requiredAtStartup = ["SLACK_BOT_TOKEN", "GEMINI_API_KEY", "SYSTEM_PROMPT", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ENC_KEY"];
-const optionalEnvVars = ["SUPABASE_KEY"];
+const requiredAtStartup = ["SLACK_BOT_TOKEN", "GEMINI_API_KEY", "SYSTEM_PROMPT", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+const optionalEnvVars = ["SUPABASE_KEY", "SUPABASE_ENC_KEY"];
 
 export function checkEnvVars() {
   const allowMissingForTests =
