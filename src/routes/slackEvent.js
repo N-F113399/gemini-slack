@@ -2,7 +2,7 @@
 import express from "express";
 import fetch from "node-fetch";
 import logger from "../utils/logger.js";
-import { handleAppMention } from "../services/geminiService.js";
+import { handleAppMention } from "../services/conversationService.js";
 import { rateLimiter, RateLimitError } from "../services/rateLimitService.js";
 
 const router = express.Router();
