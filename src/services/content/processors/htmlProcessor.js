@@ -1,5 +1,6 @@
 import { REPRESENTATION_TYPES } from "../contentTypes.js";
 import { CONTENT_ERROR_CODES, ContentError } from "../contentErrors.js";
+import { getContentLimits, truncateContentText } from "../contentLimits.js";
 
 export const SUPPORTED_HTML_MIME_TYPES = Object.freeze(["text/html"]);
 
@@ -62,6 +63,9 @@ export function processHtmlContent(content) {
     throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, "HTML page contains no readable text");
   }
 
+  const { maxTextLength } = getContentLimits();
+  const normalized = truncateContentText(text, maxTextLength);
+
   return {
     ...content,
     representations: [
@@ -69,12 +73,15 @@ export function processHtmlContent(content) {
       {
         type: REPRESENTATION_TYPES.TEXT,
         mimeType: "text/plain",
-        text,
+        text: normalized.text,
+        truncated: normalized.truncated,
+        originalLength: normalized.originalLength,
       },
     ],
     metadata: {
       ...(content.metadata || {}),
       processedAs: "html",
+      textTruncated: normalized.truncated,
     },
   };
 }
