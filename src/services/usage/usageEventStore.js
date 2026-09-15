@@ -1,7 +1,6 @@
-import supabase from "../db.js";
 import logger from "../../utils/logger.js";
 
-export async function saveUsageEvent(event) {
+export async function saveUsageEvent(event, dbClient = null) {
   if (!event || typeof event !== "object") {
     throw new TypeError("Usage event is required");
   }
@@ -25,6 +24,7 @@ export async function saveUsageEvent(event) {
     metadata: event.metadata || {},
   };
 
+  const supabase = dbClient || (await import("../db.js")).default;
   const { data, error } = await supabase
     .from("usage_events")
     .insert([row])
