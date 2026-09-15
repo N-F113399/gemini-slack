@@ -1,5 +1,3 @@
-import supabase from "../db.js";
-
 function normalizeDate(value, name) {
   if (value === null || value === undefined || value === "") return null;
   const date = new Date(value);
@@ -56,8 +54,9 @@ function aggregate(rows) {
   return result;
 }
 
-export async function getUsageReport({ from = null, to = null } = {}) {
+export async function getUsageReport({ from = null, to = null, dbClient = null } = {}) {
   const range = normalizeRange({ from, to });
+  const supabase = dbClient || (await import("../db.js")).default;
   const { data, error } = await supabase
     .from("usage_events")
     .select("occurred_at,provider,service,operation,success,latency_ms,input_tokens,output_tokens,total_tokens,credits,request_count")
