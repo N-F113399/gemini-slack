@@ -108,21 +108,10 @@ export async function handleAppMention(event) {
 
     try {
       logger.info(`🔎 Web search requested: reason=${searchDecision.reason} query=${searchDecision.query}`);
-      const searchStartedAt = Date.now();
       const searchResponse = await searchService.search({
         text: searchDecision.query,
         language: "ja",
         maxResults: 5,
-      });
-      usageTracker.record({
-        provider: searchResponse.provider.name,
-        service: "search",
-        operation: "search",
-        success: true,
-        latencyMs: Date.now() - searchStartedAt,
-        credits: searchResponse.usage?.credits,
-        requests: searchResponse.usage?.requests ?? 1,
-        metadata: { resultCount: searchResponse.results.length },
       });
 
       const selection = selectEvidence(searchResponse, {
@@ -160,13 +149,6 @@ export async function handleAppMention(event) {
       }));
       logger.info(`🔎 Web search completed: provider=${searchResponse.provider.name} results=${searchResponse.results.length} selected=${selection.resultCount}`);
     } catch (err) {
-      usageTracker.record({
-        provider: err?.provider || "unknown",
-        service: "search",
-        operation: "search",
-        success: false,
-        metadata: { code: err?.code || null, status: err?.status || null },
-      });
       logger.error(`Web search failed: ${err.message}`);
       await sendSlackMessage(channelId, threadTs, "Web検索に失敗しました。検索サービスの設定または利用状況を確認してください。");
       return;
