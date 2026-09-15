@@ -1,4 +1,3 @@
-import supabase from "../db.js";
 import { getFreeQuota, listFreeQuotas } from "./freeQuotaConfig.js";
 
 export function periodStart(period, now = new Date()) {
@@ -22,7 +21,7 @@ function usageForQuota(row, quota) {
   return 0;
 }
 
-export async function getFreeQuotaReport({ now = new Date(), quotaConfig = null } = {}) {
+export async function getFreeQuotaReport({ now = new Date(), quotaConfig = null, dbClient = null } = {}) {
   const quotas = quotaConfig ? listFreeQuotas(quotaConfig) : [
     getFreeQuota({ provider: "tavily", service: "search" }),
     getFreeQuota({ provider: "you", service: "search" }),
@@ -32,6 +31,7 @@ export async function getFreeQuotaReport({ now = new Date(), quotaConfig = null 
 
   const starts = quotas.map(quota => periodStart(quota.period, now));
   const earliest = new Date(Math.min(...starts.map(date => date.getTime())));
+  const supabase = dbClient || (await import("../db.js")).default;
   const { data, error } = await supabase
     .from("usage_events")
     .select("occurred_at,provider,service,success,input_tokens,output_tokens,total_tokens,credits,request_count")
