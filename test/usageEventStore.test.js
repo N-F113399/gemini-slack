@@ -1,9 +1,38 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { saveUsageEvent } from "../src/services/usage/usageEventStore.js";
 
-// The persistence adapter uses the real Supabase client and therefore requires
-// deployment credentials. Keep this unit contract test independent of Supabase.
-test("usage persistence row contract contains operational fields", () => {
+function createDbClient() {
+  const calls = [];
+  const inserted = [];
+
+  const query = {
+    insert(rows) {
+      calls.push({ method: "insert", rows });
+      inserted.push(...rows);
+      return query;
+    },
+    select() {
+      calls.push({ method: "select" });
+      return query;
+    },
+    async single() {
+      calls.push({ method: "single" });
+      return { data: inserted.at(-1), error: null };
+    },
+  };
+
+  return {
+    client: { from: table => {
+      calls.push({ method: "from", table });
+      return query;
+    } },
+    calls,
+  };
+}
+
+test("maps usage event to the persistence row contract", async () => {
+  const { client, calls } = createDbClient();
   const event = {
     timestamp: "2026-09-01T00:00:00.000Z",
     provider: "tavily",
@@ -12,30 +41,32 @@ test("usage persistence row contract contains operational fields", () => {
     success: false,
     latencyMs: 125,
     tokens: { input: null, output: null, total: null },
-    search: { credits: 1, requests: 1 },
-    estimatedCostUsd: 0.001,
+    search: { credits: 1, requests: 2 },
     metadata: { errorCode: "SEARCH_PROVIDER_ERROR", status: 500, retryable: true, quotaRelated: false },
   };
 
-  const row = {
-    occurred_at: event.timestamp,
-    provider: event.provider,
-    service: event.service,
-    operation: event.operation,
-    success: event.success,
-    latency_ms: event.latencyMs,
-    credits: event.search.credits,
-    request_count: event.search.requests,
-    estimated_cost_usd: event.estimatedCostUsd,
-    error_code: event.metadata.errorCode,
-    http_status: event.metadata.status,
-    retryable: event.metadata.retryable,
-    quota_related: event.metadata.quotaRelated,
-    metadata: event.metadata,
-  };
+  const result = await saveUsageEvent(event, client);
+  const insertCall = calls.find(call => call.method === "insert");
+  const row = insertCall.rows[0];
 
-  assert.equal(row.provider, "tavily");
+  assert.equal(result.provider, "tavily");
   assert.equal(row.credits, 1);
+  assert.equal(row.request_count, 2);
   assert.equal(row.http_status, 500);
   assert.equal(row.retryable, true);
+  assert.equal(row.metadata.errorCode, "SEARCH_PROVIDER_ERROR");
+});
+
+test("defaults request_count to one when the event has no search request count", async () => {
+  const { client, calls } = createDbClient();
+
+  await saveUsageEvent({
+    timestamp: "2026-09-01T00:00:00.000Z",
+    provider: "gemini",
+    service: "gemini",
+    success: true,
+  }, client);
+
+  const insertCall = calls.find(call => call.method === "insert");
+  assert.equal(insertCall.rows[0].request_count, 1);
 });
