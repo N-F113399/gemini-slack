@@ -11,7 +11,6 @@ test("records provider usage and summarizes totals", () => {
     latencyMs: 100,
     credits: 1,
     requests: 1,
-    estimatedCostUsd: 0.01,
   });
   tracker.record({
     provider: "gemini",
@@ -56,4 +55,25 @@ test("filters usage by provider and service", () => {
 
   assert.equal(tracker.list({ provider: "tavily" }).length, 1);
   assert.equal(tracker.list({ service: "search" }).length, 2);
+});
+
+test("normalizes negative usage values to null instead of creating invalid persistence data", () => {
+  const tracker = new UsageTracker();
+  const event = tracker.record({
+    provider: "gemini",
+    service: "gemini",
+    latencyMs: -1,
+    inputTokens: -2,
+    outputTokens: -3,
+    totalTokens: -4,
+    credits: -5,
+    requests: -6,
+  });
+
+  assert.equal(event.latencyMs, null);
+  assert.equal(event.tokens.input, null);
+  assert.equal(event.tokens.output, null);
+  assert.equal(event.tokens.total, null);
+  assert.equal(event.search.credits, null);
+  assert.equal(event.search.requests, null);
 });
