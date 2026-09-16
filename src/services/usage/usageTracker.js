@@ -11,6 +11,11 @@ function normalizeNumber(value) {
   return Number.isFinite(Number(value)) ? Number(value) : null;
 }
 
+function normalizeNonNegativeNumber(value) {
+  const normalized = normalizeNumber(value);
+  return normalized === null || normalized >= 0 ? normalized : null;
+}
+
 export class UsageTracker {
   constructor({ maxEvents = readMaxEvents(), persistence = null } = {}) {
     if (!Number.isInteger(maxEvents) || maxEvents <= 0) throw new TypeError("maxEvents must be a positive integer");
@@ -35,9 +40,9 @@ export class UsageTracker {
       service,
       operation,
       success: Boolean(success),
-      latencyMs: normalizeNumber(latencyMs),
-      tokens: Object.freeze({ input: normalizeNumber(inputTokens), output: normalizeNumber(outputTokens), total: normalizeNumber(totalTokens) }),
-      search: Object.freeze({ credits: normalizeNumber(credits), requests: normalizeNumber(requests) }),
+      latencyMs: normalizeNonNegativeNumber(latencyMs),
+      tokens: Object.freeze({ input: normalizeNonNegativeNumber(inputTokens), output: normalizeNonNegativeNumber(outputTokens), total: normalizeNonNegativeNumber(totalTokens) }),
+      search: Object.freeze({ credits: normalizeNonNegativeNumber(credits), requests: normalizeNonNegativeNumber(requests) }),
       metadata: Object.freeze({ ...metadata }),
     });
 
