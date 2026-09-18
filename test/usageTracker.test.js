@@ -77,3 +77,41 @@ test("normalizes negative usage values to null instead of creating invalid persi
   assert.equal(event.search.credits, null);
   assert.equal(event.search.requests, null);
 });
+
+test("persists recorded events asynchronously", async () => {
+  const persisted = [];
+  const tracker = new UsageTracker({
+    persistence: async event => {
+      persisted.push(event);
+    },
+  });
+
+  const event = tracker.record({
+    provider: "gemini",
+    service: "gemini",
+  });
+
+  assert.equal(persisted.length, 0);
+
+  await Promise.resolve();
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0], event);
+});
+
+test("swallows persistence failures without rejecting the caller flow", async () => {
+  let called = false;
+  const tracker = new UsageTracker({
+    persistence: async () => {
+      called = true;
+      throw new Error("persist failed");
+    },
+  });
+
+  tracker.record({
+    provider: "gemini",
+    service: "gemini",
+  });
+
+  await Promise.resolve();
+  assert.equal(called, true);
+});
