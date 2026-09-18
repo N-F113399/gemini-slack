@@ -67,8 +67,12 @@ export class UsageMonitorScheduler {
       const alerts = await this.evaluate({ summary: report.byProvider, quotas: quotaReport.quotas });
       let qualityAlerts = [];
       if (this.getQualityReport) {
-        const qualityReport = await this.getQualityReport({ to: now });
-        qualityAlerts = await this.evaluateQuality({ report: qualityReport });
+        try {
+          const qualityReport = await this.getQualityReport({ to: now });
+          qualityAlerts = await this.evaluateQuality({ report: qualityReport });
+        } catch (error) {
+          logger.error(`Usage quality monitor run failed: ${error.message}`);
+        }
       }
       const allAlerts = [...alerts, ...qualityAlerts];
       if (allAlerts.length > 0) await this.notify(allAlerts);
