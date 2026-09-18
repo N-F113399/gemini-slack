@@ -33,6 +33,27 @@ test("runOnce skips overlapping executions", async () => {
   await first;
 });
 
+test("runOnce continues regular alerts when quality monitoring fails", async () => {
+  let notified = null;
+  const scheduler = new UsageMonitorScheduler({
+    getReport: async () => ({ byProvider: {} }),
+    getQuotaReport: async () => ({ quotas: [] }),
+    getQualityReport: async () => { throw new Error("quality report failed"); },
+    evaluate: () => [{ type: "failure_rate", service: "search", provider: "tavily", value: 0.4, threshold: 0.3 }],
+    notify: async alerts => { notified = alerts; },
+  });
+
+  const result = await scheduler.runOnce(new Date("2026-09-01T00:00:00Z"));
+  assert.equal(result.alerts, 1);
+  assert.deepEqual(notified, [{
+    type: "failure_rate",
+    service: "search",
+    provider: "tavily",
+    value: 0.4,
+    threshold: 0.3,
+  }]);
+});
+
 test("start and stop are idempotent", () => {
   const scheduler = new UsageMonitorScheduler();
   assert.equal(scheduler.start(), true);
