@@ -49,8 +49,11 @@ export class UsageTracker {
     this.events.push(event);
     if (this.events.length > this.maxEvents) this.events.shift();
 
-    if (this.persistence) {
-      Promise.resolve().then(() => this.persistence(event)).catch(error => logger.error(`Failed to persist usage event: ${error.message}`));
+    const persistence = this.persistence;
+    if (persistence) {
+      Promise.resolve()
+        .then(() => persistence(event))
+        .catch(error => logger.error(`Failed to persist usage event: ${error.message}`));
     }
     return event;
   }
