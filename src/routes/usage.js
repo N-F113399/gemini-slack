@@ -20,7 +20,7 @@ router.get("/", async (req, res) => {
     });
     return res.status(200).json(report);
   } catch (error) {
-    return res.status(400).json({ error: error.message || "Failed to build usage report" });
+    return res.status(500).json({ error: "Failed to build usage report" });
   }
 });
 
@@ -34,7 +34,7 @@ router.get("/quality", async (req, res) => {
     });
     return res.status(200).json(report);
   } catch (error) {
-    return res.status(400).json({ error: error.message || "Failed to build search quality report" });
+    return res.status(500).json({ error: "Failed to build search quality report" });
   }
 });
 
