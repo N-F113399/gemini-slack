@@ -1,12 +1,19 @@
 import express from "express";
+import crypto from "node:crypto";
 import { getFreeQuotaReport } from "../services/usage/freeQuotaReportService.js";
 
 const router = express.Router();
 
 function isAuthorized(req) {
   const expected = process.env.USAGE_REPORT_TOKEN;
+  const actual = req.headers.authorization || "";
   if (!expected) return false;
-  return req.headers.authorization === `Bearer ${expected}`;
+
+  const expectedBuffer = Buffer.from(`Bearer ${expected}`, "utf8");
+  const actualBuffer = Buffer.from(actual, "utf8");
+  if (expectedBuffer.length !== actualBuffer.length) return false;
+
+  return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
 router.get("/", async (req, res) => {
