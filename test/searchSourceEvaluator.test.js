@@ -39,7 +39,27 @@ test("detects conflicting evidence for similar titles", () => {
   ]);
   const conflicts = detectSourceConflicts(sources);
   assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].contradictoryClaims, true);
   assert.deepEqual(conflicts[0].sourceIds, ["a", "b"]);
+});
+
+test("does not treat unrelated numeric evidence as contradictory", () => {
+  const sources = evaluateSearchSources([
+    result("a", "PostgreSQL release date", "https://a.example.com", "release is scheduled for June 1"),
+    result("b", "PostgreSQL release date", "https://b.example.com", "release is scheduled for June 1 with 20 supported platforms"),
+  ]);
+  const conflicts = detectSourceConflicts(sources);
+  assert.equal(conflicts.length, 0);
+});
+
+test("detects conflicts when the same topic has different numeric claims", () => {
+  const sources = evaluateSearchSources([
+    result("a", "Database size", "https://a.example.com", "database size is 10 GB"),
+    result("b", "Database size", "https://b.example.com", "database size is 20 GB"),
+  ]);
+  const conflicts = detectSourceConflicts(sources);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].contradictoryClaims, true);
 });
 
 test("source guidance exposes conflicts and safety instructions", () => {
