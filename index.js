@@ -12,6 +12,7 @@ import usageQuotaRouter from "./src/routes/usageQuota.js";
 import { usageTracker } from "./src/services/usage/usageTracker.js";
 import { usageMonitorScheduler } from "./src/services/monitoring/usageMonitorScheduler.js";
 import { usageRetentionScheduler } from "./src/services/usage/usageRetentionScheduler.js";
+import { verifySlackSignature } from "./src/middleware/slackSignature.js";
 
 dotenv.config();
 checkEnvVars();
@@ -20,17 +21,21 @@ const { saveUsageEvent } = await import("./src/services/usage/usageEventStore.js
 usageTracker.setPersistence(saveUsageEvent);
 
 const app = express();
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use("/slack/events", slackEventsRouter);
-app.use("/slack/commands", slackCommandsRouter);
-app.use("/slack/shortcuts", slackShortcutRouter);
+const captureRawBody = (req, res, buf) => {
+  req.rawBody = Buffer.from(buf);
+};
+
+app.use(bodyParser.json({ verify: captureRawBody, limit: "1mb" }));
+app.use(bodyParser.urlencoded({ extended: false, verify: captureRawBody, limit: "1mb" }));
+app.use("/slack/events", verifySlackSignature, slackEventsRouter);
+app.use("/slack/commands", verifySlackSignature, slackCommandsRouter);
+app.use("/slack/shortcuts", verifySlackSignature, slackShortcutRouter);
 app.use("/usage", usageRouter);
 app.use("/usage/quota", usageQuotaRouter);
 
 app.use((err, req, res, next) => {
   const response = handleError(err, "Express");
-  res.status(500).json(response);
+  res.status(500).json({ error: "Internal server error" });
 });
 
 const PORT = process.env.PORT || 10000;
