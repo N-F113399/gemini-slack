@@ -55,15 +55,26 @@ function authorityScore(domain) {
 }
 
 function claimMarkers(text) {
-  return new Set((text.match(/\b\d+(?:\.\d+)?\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(?:jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b/gi) || []).map(value => value.toLowerCase()));
+  return new Set(
+    (
+      text.match(
+        /\b\d+(?:\.\d+)?\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(?:jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b/gi,
+      ) || []
+    ).map(value => value.toLowerCase()),
+  );
 }
 
 function hasContradictoryClaims(left, right) {
   if (left.size === 0 || right.size === 0) return false;
-  return [...left].some(marker => {
-    if (/^\d/.test(marker) && right.has(marker)) return false;
-    return false;
-  }) || (left.size > 0 && right.size > 0 && [...left].some(marker => !right.has(marker)) && [...right].some(marker => !left.has(marker)));
+
+  const shared = [...left].filter(marker => right.has(marker));
+  const leftOnly = [...left].filter(marker => !right.has(marker));
+  const rightOnly = [...right].filter(marker => !left.has(marker));
+
+  // Different numeric/date markers are a useful signal when two sources
+  // discuss the same topic. Requiring both sides to contain unique markers
+  // avoids treating an otherwise different source as contradictory.
+  return shared.length > 0 && leftOnly.length > 0 && rightOnly.length > 0;
 }
 
 export function evaluateSearchSources(results = [], {
