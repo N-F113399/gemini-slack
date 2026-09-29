@@ -78,11 +78,19 @@ export async function downloadSlackFile(file) {
 
   try {
     const response = await fetch(url, {
+      redirect: "manual",
       headers: {
         Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
       },
       signal: controller.signal,
     });
+
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      throw new ContentError(
+        CONTENT_ERROR_CODES.INVALID_CONTENT,
+        "Slack file download returned an unexpected redirect",
+      );
+    }
 
     if (!response.ok) {
       throw new ContentError(
