@@ -11,7 +11,7 @@ import { ContentError } from "./content/contentErrors.js";
 import { createConfiguredSearchService } from "./search/searchServiceFactory.js";
 import { decideSearch } from "./search/searchDecision.js";
 import { selectEvidence, buildSelectedEvidenceText } from "./search/evidenceSelector.js";
-import { wrapExternalContent } from "./security/externalContentGuard.js";
+import { wrapExternalGeminiPart, wrapExternalContent } from "./security/externalContentGuard.js";
 import { buildAttributionInstruction } from "./search/evidenceAttribution.js";
 import { evaluateCitationCoverage } from "./search/citationCoverage.js";
 import { evaluateSearchSources, detectSourceConflicts } from "./search/searchSourceEvaluator.js";
@@ -161,13 +161,9 @@ export async function handleAppMention(event) {
       text: userMessage,
     });
     const resolvedParts = adaptContentsToGeminiParts(resolved.contents);
-    inputParts.push(...resolvedParts.map((part) => {
-      if (typeof part?.text !== "string") return part;
-      return {
-        ...part,
-        text: wrapExternalContent(part.text, { source: "message content" }),
-      };
-    }));
+    inputParts.push(...resolvedParts.flatMap((part) => (
+      wrapExternalGeminiPart(part, { source: "message content" })
+    )));
     logger.info(`📎 Prepared ${resolved.fileCount} attachment(s) and ${resolved.urlCount} URL(s) for Gemini`);
 
     if (resolved.unsupportedFiles.length > 0) {
