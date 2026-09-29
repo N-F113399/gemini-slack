@@ -14,7 +14,7 @@ router.get("/", async (req, res) => {
   try {
     return res.status(200).json(await getFreeQuotaReport());
   } catch (error) {
-    return res.status(500).json({ error: error.message || "Failed to build free quota report" });
+    return res.status(500).json({ error: "Failed to build free quota report" });
   }
 });
 
