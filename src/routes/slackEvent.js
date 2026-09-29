@@ -31,7 +31,7 @@ async function resolveBotIdentity() {
         OWN_BOT_ID = OWN_BOT_ID || body.bot_id || null;
         logger.info(`Resolved bot identity: user_id=${OWN_BOT_USER_ID} bot_id=${OWN_BOT_ID}`);
       } else {
-        logger.warn("auth.test failed: " + JSON.stringify(body));
+        logger.warn(`auth.test failed: ${body.error || "unknown error"}`);
       }
     } catch (err) {
       logger.error("Failed to call auth.test: " + err.message);
@@ -119,7 +119,7 @@ router.post("/", async (req, res) => {
   logger.info(
     `Handling ${isAppMention ? "app_mention" : "message mention"} from ${event.user || event.bot_id}`,
   );
-  logger.debug("Event payload: " + JSON.stringify(event));
+  logger.debug(`Event accepted: type=${event.type || "unknown"} user=${event.user || "none"} channel=${event.channel || "none"}`);
 
   try {
     await handleAppMention(event);
