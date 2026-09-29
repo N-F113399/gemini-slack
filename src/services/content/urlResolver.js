@@ -1,4 +1,6 @@
 import dns from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
 import net from "node:net";
 import fetch from "node-fetch";
 import {
@@ -91,6 +93,32 @@ export function isBlockedAddress(address) {
   return false;
 }
 
+async function resolvePublicAddress(hostname) {
+  const records = await dns.lookup(hostname, { all: true, verbatim: true });
+  if (records.length === 0 || records.some(record => isBlockedAddress(record.address))) {
+    throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, "URL resolves to a private or local network address");
+  }
+  return records;
+}
+
+function createSafeAgent(protocol, hostname) {
+  const Agent = protocol === "https:" ? https.Agent : http.Agent;
+  return new Agent({
+    keepAlive: false,
+    lookup: (host, options, callback) => {
+      dns.lookup(host, { all: true, verbatim: true }, (err, records) => {
+        if (err) return callback(err);
+        if (records.length === 0 || records.some(record => isBlockedAddress(record.address))) {
+          return callback(new Error("URL resolves to a private or local network address"));
+        }
+        const selected = records[0];
+        callback(null, selected.address, selected.family);
+      });
+    },
+    ...(protocol === "https:" ? { servername: hostname } : {}),
+  });
+}
+
 export async function validateUrlTarget(rawUrl) {
   let parsed;
   try {
@@ -117,14 +145,11 @@ export async function validateUrlTarget(rawUrl) {
   }
 
   if (!literalFamily) {
-    let records;
     try {
-      records = await dns.lookup(hostname, { all: true, verbatim: true });
+      await resolvePublicAddress(hostname);
     } catch (err) {
+      if (err instanceof ContentError) throw err;
       throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, `DNS resolution failed: ${err.message}`);
-    }
-    if (records.length === 0 || records.some(record => isBlockedAddress(record.address))) {
-      throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, "URL resolves to a private or local network address");
     }
   }
 
@@ -155,7 +180,7 @@ export async function fetchUrlContent(rawUrl, options = {}) {
   const timeoutMs = options.timeoutMs || getTimeoutMs();
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    await validateUrlTarget(currentUrl);
+    const parsedUrl = await validateUrlTarget(currentUrl);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -164,6 +189,7 @@ export async function fetchUrlContent(rawUrl, options = {}) {
         method: "GET",
         redirect: "manual",
         headers: { "User-Agent": "gemini-slack-bot/1.0" },
+        agent: createSafeAgent(parsedUrl.protocol, parsedUrl.hostname),
         signal: controller.signal,
       });
 
