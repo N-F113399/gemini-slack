@@ -23,14 +23,18 @@ export function buildSearchContext(response, { maxResults = 5 } = {}) {
       ? excerpts.join("\n")
       : evidence.summary || evidence.text || evidence.description || "";
 
-    return [
+    const sourceBlock = [
       `[Web Source ${index + 1}]`,
       `Title: ${source.title || ""}`,
       `URL: ${source.url || ""}`,
       `Domain: ${source.domain || ""}`,
       `Source quality score: ${item.qualityScore.toFixed(2)}`,
-      evidenceText ? wrapExternalContent(evidenceText, { source: source.url || source.domain || "web search" }) : null,
+      evidenceText,
     ].filter(Boolean).join("\n");
+
+    return wrapExternalContent(sourceBlock, {
+      source: source.url || source.domain || "web search",
+    });
   });
 
   const agreementText = guidance.agreements.length > 0
