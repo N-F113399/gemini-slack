@@ -57,7 +57,7 @@ function getEventKey(event) {
 
 function hasOwnBotMention(event, botUserId) {
   if (!botUserId || typeof event?.text !== "string") return false;
-  return new RegExp(`<@${botUserId}(?:\\\\|[^>]+)?>`).test(event.text);
+  return new RegExp(`<@${botUserId}(?:\\|[^>]+)?>`).test(event.text);
 }
 
 function isDuplicateEvent(eventKey, now = Date.now()) {
