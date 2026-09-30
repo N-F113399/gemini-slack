@@ -11,6 +11,10 @@ let OWN_BOT_USER_ID = process.env.SLACK_BOT_USER_ID || null;
 let OWN_BOT_ID = process.env.SLACK_BOT_ID || null;
 let resolvingBotIdentity = null;
 
+const PROCESSED_EVENT_TTL_MS = 10 * 60 * 1000;
+const MAX_PROCESSED_EVENTS = 10_000;
+const processedEvents = new Map();
+
 async function resolveBotIdentity() {
   if (OWN_BOT_USER_ID && OWN_BOT_ID) return { userId: OWN_BOT_USER_ID, botId: OWN_BOT_ID };
   if (resolvingBotIdentity) return resolvingBotIdentity;
@@ -45,8 +49,6 @@ async function resolveBotIdentity() {
   return resolvingBotIdentity;
 }
 
-const processedEvents = new Set();
-
 function getEventKey(event) {
   if (event?.event_id) return event.event_id;
   if (event?.channel && event?.ts) return `${event.channel}:${event.ts}`;
@@ -55,7 +57,36 @@ function getEventKey(event) {
 
 function hasOwnBotMention(event, botUserId) {
   if (!botUserId || typeof event?.text !== "string") return false;
-  return new RegExp(`<@${botUserId}(?:\\|[^>]+)?>`).test(event.text);
+  return new RegExp(`<@${botUserId}(?:\\\\|[^>]+)?>`).test(event.text);
+}
+
+function isDuplicateEvent(eventKey, now = Date.now()) {
+  if (!eventKey) return false;
+
+  const processedAt = processedEvents.get(eventKey);
+  if (processedAt === undefined) return false;
+
+  if (now - processedAt >= PROCESSED_EVENT_TTL_MS) {
+    processedEvents.delete(eventKey);
+    return false;
+  }
+
+  return true;
+}
+
+function rememberProcessedEvent(eventKey, now = Date.now()) {
+  if (!eventKey) return;
+
+  processedEvents.set(eventKey, now);
+
+  if (processedEvents.size <= MAX_PROCESSED_EVENTS) return;
+
+  const oldestKey = processedEvents.keys().next().value;
+  if (oldestKey !== undefined) processedEvents.delete(oldestKey);
+}
+
+function forgetProcessedEvent(eventKey) {
+  if (eventKey) processedEvents.delete(eventKey);
 }
 
 router.post("/", async (req, res) => {
@@ -70,8 +101,7 @@ router.post("/", async (req, res) => {
   if (!event) return;
 
   const eventKey = getEventKey(event);
-  if (eventKey && processedEvents.has(eventKey)) return;
-  if (eventKey) processedEvents.add(eventKey);
+  if (isDuplicateEvent(eventKey)) return;
 
   const { userId: ownBotUserId, botId: ownBotId } = await resolveBotIdentity();
 
@@ -116,6 +146,9 @@ router.post("/", async (req, res) => {
     throw err;
   }
 
+  if (isDuplicateEvent(eventKey)) return;
+  rememberProcessedEvent(eventKey);
+
   logger.info(
     `Handling ${isAppMention ? "app_mention" : "message mention"} from ${event.user || event.bot_id}`,
   );
@@ -124,6 +157,7 @@ router.post("/", async (req, res) => {
   try {
     await handleAppMention(event);
   } catch (err) {
+    forgetProcessedEvent(eventKey);
     logger.error("Error handling mention: " + err.message);
   }
 });
