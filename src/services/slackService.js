@@ -9,13 +9,13 @@ function getTimeoutMs() {
   return Number.isFinite(value) && value > 0 ? value : DEFAULT_TIMEOUT_MS;
 }
 
-export async function sendSlackMessage(channel, thread_ts, text) {
+export async function sendSlackMessage(channel, thread_ts, text, { fetchImpl = fetch } = {}) {
   const controller = new AbortController();
   const timeoutMs = getTimeoutMs();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${SLACK_API_URL}/chat.postMessage`, {
+    const response = await fetchImpl(`${SLACK_API_URL}/chat.postMessage`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
