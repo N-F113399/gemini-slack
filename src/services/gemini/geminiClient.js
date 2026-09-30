@@ -5,7 +5,7 @@ import fetch from "node-fetch";
  * This module only knows how to communicate with the Gemini API.
  */
 export async function generateContent({ modelName, contents, systemPrompt, timeoutMs }) {
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -20,7 +20,10 @@ export async function generateContent({ modelName, contents, systemPrompt, timeo
   try {
     res = await fetch(geminiUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": process.env.GEMINI_API_KEY,
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
