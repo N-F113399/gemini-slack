@@ -12,14 +12,51 @@ function readPositiveInt(name, fallback) {
   return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
+function shortenQueryText(text, maxLength) {
+  const characters = Array.from(text);
+  if (characters.length <= maxLength) {
+    return { text, originalLength: characters.length, truncated: false };
+  }
+
+  const candidate = characters.slice(0, maxLength);
+  // Prefer a natural break near the end of the allowed window. This keeps the
+  // query readable without discarding most of it for a very early punctuation.
+  const minimumBreak = Math.floor(maxLength * 0.85);
+  let breakAt = -1;
+  for (let index = candidate.length - 1; index >= minimumBreak; index -= 1) {
+    if (/[\\s。！？.!?、，,；;：:]$/u.test(candidate[index])) {
+      breakAt = index + 1;
+      break;
+    }
+  }
+
+  const shortened = candidate.slice(0, breakAt > 0 ? breakAt : maxLength).join("").trim();
+  return {
+    text: shortened || candidate.join("").trim(),
+    originalLength: characters.length,
+    truncated: true,
+  };
+}
+
+function normalizeSearchQuery(query, maxQueryLength) {
+  const shortened = shortenQueryText(query.text, maxQueryLength);
+  if (!shortened.truncated) return query;
+
+  return createSearchQuery({
+    ...query,
+    text: shortened.text,
+    metadata: {
+      ...query.metadata,
+      originalQueryLength: shortened.originalLength,
+      queryTruncated: true,
+    },
+  });
+}
+
 function validateSearchLimits(query) {
-  const maxQueryLength = readPositiveInt("SEARCH_MAX_QUERY_LENGTH", DEFAULT_MAX_QUERY_LENGTH);
   const maxResults = readPositiveInt("SEARCH_MAX_RESULTS", DEFAULT_MAX_RESULTS);
   const maxDomains = readPositiveInt("SEARCH_MAX_DOMAINS", DEFAULT_MAX_DOMAINS);
 
-  if (query.text.length > maxQueryLength) {
-    throw new SearchProviderError(SEARCH_ERROR_CODES.INVALID_REQUEST, `Search query exceeds the ${maxQueryLength} character limit`);
-  }
   if (query.maxResults > maxResults) {
     throw new SearchProviderError(SEARCH_ERROR_CODES.INVALID_REQUEST, `Search result limit exceeds the maximum of ${maxResults}`);
   }
@@ -41,7 +78,8 @@ export class SearchService {
   }
 
   async search(queryInput) {
-    const query = createSearchQuery(queryInput);
+    const maxQueryLength = readPositiveInt("SEARCH_MAX_QUERY_LENGTH", DEFAULT_MAX_QUERY_LENGTH);
+    const query = normalizeSearchQuery(createSearchQuery(queryInput), maxQueryLength);
     validateSearchLimits(query);
     const maxProviderAttempts = Math.min(this.providers.length, readPositiveInt("SEARCH_MAX_PROVIDER_ATTEMPTS", DEFAULT_MAX_PROVIDER_ATTEMPTS));
     let lastError = null;
@@ -66,7 +104,12 @@ export class SearchService {
           latencyMs,
           credits,
           requests,
-          metadata: { requestId: response?.provider?.requestId ?? null, resultCount },
+          metadata: {
+            requestId: response?.provider?.requestId ?? null,
+            resultCount,
+            queryTruncated: query.metadata.queryTruncated === true,
+            originalQueryLength: query.metadata.originalQueryLength ?? null,
+          },
         });
         return response;
       } catch (error) {
@@ -84,6 +127,8 @@ export class SearchService {
             status: error?.status || null,
             retryable: error?.retryable ?? false,
             quotaRelated: error?.quotaRelated ?? false,
+            queryTruncated: query.metadata.queryTruncated === true,
+            originalQueryLength: query.metadata.originalQueryLength ?? null,
           },
         });
         if (error instanceof SearchProviderError) {
