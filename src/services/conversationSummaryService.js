@@ -11,6 +11,19 @@ import {
   buildSummaryPrompt,
 } from "./conversationSummaryUtils.js";
 
+const threadLocks = new Map();
+
+function withThreadLock(channel_id, thread_ts, task) {
+  const key = `${channel_id}|${thread_ts}`;
+  const previous = threadLocks.get(key) || Promise.resolve();
+  const current = previous.catch(() => {}).then(task);
+  threadLocks.set(key, current);
+
+  return current.finally(() => {
+    if (threadLocks.get(key) === current) threadLocks.delete(key);
+  });
+}
+
 async function generateAndSaveSummary({ channel_id, thread_ts, messages, previousSummary = null }) {
   const summaryPrompt = buildSummaryPrompt({
     previousSummary: previousSummary?.summary || null,
@@ -41,7 +54,7 @@ async function generateAndSaveSummary({ channel_id, thread_ts, messages, previou
   return saved ? { summary, messageCount: summarizedMessageCount, result } : null;
 }
 
-export async function updateSummaryIfNeeded({ channel_id, thread_ts }) {
+async function updateSummaryIfNeededUnlocked({ channel_id, thread_ts }) {
   try {
     const triggerMessages = getPositiveIntegerEnv("SUMMARY_TRIGGER_MESSAGES", DEFAULT_TRIGGER_MESSAGES);
     const updateInterval = getPositiveIntegerEnv("SUMMARY_UPDATE_INTERVAL", DEFAULT_UPDATE_INTERVAL);
@@ -76,7 +89,7 @@ export async function updateSummaryIfNeeded({ channel_id, thread_ts }) {
  * Existing summaries are incrementally updated with messages that have not
  * yet been included in the stored message_count.
  */
-export async function summarizeThread({ channel_id, thread_ts }) {
+async function summarizeThreadUnlocked({ channel_id, thread_ts }) {
   const existingSummary = await getSummary(channel_id, thread_ts);
   const messages = await getLatestReplies(channel_id, thread_ts, null);
 
@@ -103,4 +116,11 @@ export async function summarizeThread({ channel_id, thread_ts }) {
 
   if (!saved) return null;
   return { ...saved, reused: false };
+}
+
+
+export function summarizeThread({ channel_id, thread_ts }) {
+  return withThreadLock(channel_id, thread_ts, () =>
+    summarizeThreadUnlocked({ channel_id, thread_ts })
+  );
 }
