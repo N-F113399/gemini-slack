@@ -84,6 +84,12 @@ async function updateSummaryIfNeededUnlocked({ channel_id, thread_ts }) {
   }
 }
 
+export function updateSummaryIfNeeded({ channel_id, thread_ts }) {
+  return withThreadLock(channel_id, thread_ts, () =>
+    updateSummaryIfNeededUnlocked({ channel_id, thread_ts })
+  );
+}
+
 /**
  * Explicitly summarize a thread, ignoring the automatic update thresholds.
  * Existing summaries are incrementally updated with messages that have not
