@@ -11,6 +11,7 @@ import {
   REPRESENTATION_TYPES,
 } from "./contentTypes.js";
 import { ContentError, CONTENT_ERROR_CODES } from "./contentErrors.js";
+import logger from "../../utils/logger.js";
 
 const DEFAULT_MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 10000;
@@ -93,6 +94,15 @@ export function isBlockedAddress(address) {
   return false;
 }
 
+export function selectPreferredAddress(records) {
+  const ipv4 = records.find(record => record.family === 4);
+  return ipv4 || records.find(record => record.family === 6) || null;
+}
+
+function formatDnsRecords(records) {
+  return records.map(record => \`\\${record.address}/IPv\\${record.family}\\`).join(", ");
+}
+
 async function resolvePublicAddress(hostname) {
   const records = await dns.lookup(hostname, { all: true, verbatim: true });
   if (records.length === 0 || records.some(record => isBlockedAddress(record.address))) {
@@ -111,7 +121,10 @@ function createSafeAgent(protocol, hostname) {
         if (records.length === 0 || records.some(record => isBlockedAddress(record.address))) {
           return callback(new Error("URL resolves to a private or local network address"));
         }
-        const selected = records[0];
+        const selected = selectPreferredAddress(records);
+        if (!selected) {
+          return callback(new Error("No usable public network address found"));
+        }
         callback(null, selected.address, selected.family);
       });
     },
@@ -181,6 +194,16 @@ export async function fetchUrlContent(rawUrl, options = {}) {
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
     const parsedUrl = await validateUrlTarget(currentUrl);
+    const dnsRecords = net.isIP(parsedUrl.hostname)
+      ? [{ address: parsedUrl.hostname, family: net.isIP(parsedUrl.hostname) }]
+      : await dns.lookup(parsedUrl.hostname, { all: true, verbatim: true });
+    const selectedAddress = selectPreferredAddress(dnsRecords);
+    const startedAt = Date.now();
+
+    logger.info(
+      \`URL fetch started: host=\\${parsedUrl.hostname} protocol=\\${parsedUrl.protocol} timeoutMs=\\${timeoutMs} addresses=[\\${formatDnsRecords(dnsRecords)}] selected=\\${selectedAddress ? \`${selectedAddress.address}/IPv${selectedAddress.family}\` : "none"} redirectCount=\\${redirectCount}\`,
+    );
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -192,6 +215,10 @@ export async function fetchUrlContent(rawUrl, options = {}) {
         agent: createSafeAgent(parsedUrl.protocol, parsedUrl.hostname),
         signal: controller.signal,
       });
+
+      logger.info(
+        \`URL response received: host=\\${parsedUrl.hostname} status=\\${response.status} elapsedMs=\\${Date.now() - startedAt}\`,
+      );
 
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location");
@@ -211,6 +238,9 @@ export async function fetchUrlContent(rawUrl, options = {}) {
       }
 
       const data = await readResponseBody(response, maxResponseSize);
+      logger.info(
+        \`URL fetch completed: host=\\${parsedUrl.hostname} status=\\${response.status} mimeType=\\${mimeType} size=\\${data.length} elapsedMs=\\${Date.now() - startedAt} finalUrl=\\${currentUrl}\`,
+      );
       return { data, mimeType, size: data.length, finalUrl: currentUrl };
     } catch (err) {
       if (err instanceof ContentError) throw err;
