@@ -124,6 +124,15 @@ export function attachSocketDiagnostics(socket, onSocketEvent = () => {}) {
   socket.once("error", err => {
     onSocketEvent("socket_error", { name: err.name, code: err.code, message: err.message });
   });
+  socket.once("timeout", () => {
+    onSocketEvent("socket_timeout", { remoteAddress: socket.remoteAddress, remotePort: socket.remotePort });
+  });
+  socket.once("end", () => {
+    onSocketEvent("socket_end", { remoteAddress: socket.remoteAddress, remotePort: socket.remotePort });
+  });
+  socket.once("close", hadError => {
+    onSocketEvent("socket_closed", { hadError, remoteAddress: socket.remoteAddress, remotePort: socket.remotePort });
+  });
   return socket;
 }
 
@@ -132,15 +141,26 @@ function createSafeAgent(protocol, hostname, onSocketEvent = () => {}) {
   const agent = new Agent({
     keepAlive: false,
     lookup: (host, options, callback) => {
+      onSocketEvent("agent_lookup_started", { host, family: options?.family, all: options?.all });
       dns.lookup(host, { all: true, verbatim: true }, (err, records) => {
-        if (err) return callback(err);
+        if (err) {
+          onSocketEvent("agent_lookup_failed", { host, code: err.code, message: err.message });
+          return callback(err);
+        }
         if (records.length === 0 || records.some(record => isBlockedAddress(record.address))) {
+          onSocketEvent("agent_lookup_blocked", { host, records: formatDnsRecords(records) });
           return callback(new Error("URL resolves to a private or local network address"));
         }
         const selected = selectPreferredAddress(records);
         if (!selected) {
+          onSocketEvent("agent_lookup_failed", { host, reason: "no_usable_address" });
           return callback(new Error("No usable public network address found"));
         }
+        onSocketEvent("agent_lookup_completed", {
+          host,
+          records: formatDnsRecords(records),
+          selected: `${selected.address}/IPv${selected.family}`,
+        });
         callback(null, selected.address, selected.family);
       });
     },
@@ -149,8 +169,32 @@ function createSafeAgent(protocol, hostname, onSocketEvent = () => {}) {
 
   const createConnection = agent.createConnection;
   agent.createConnection = function createDiagnosedConnection(options, callback) {
-    const socket = createConnection.call(this, options, callback);
-    return attachSocketDiagnostics(socket, onSocketEvent);
+    const connectionDetails = {
+      host: options?.host,
+      port: options?.port,
+      servername: options?.servername || hostname,
+      family: options?.family,
+    };
+    onSocketEvent("agent_create_connection_called", connectionDetails);
+    onSocketEvent("socket_creation_started", connectionDetails);
+    let socket;
+    try {
+      socket = createConnection.call(this, options, callback);
+    } catch (err) {
+      onSocketEvent("socket_creation_failed", {
+        ...connectionDetails,
+        name: err.name,
+        code: err.code,
+        message: err.message,
+      });
+      throw err;
+    }
+    onSocketEvent("socket_creation_returned", {
+      ...connectionDetails,
+      socketPresent: Boolean(socket),
+      socketType: socket?.constructor?.name,
+    });
+    return socket ? attachSocketDiagnostics(socket, onSocketEvent) : socket;
   };
 
   return agent;
