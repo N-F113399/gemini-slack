@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractUrls, isBlockedAddress, selectPreferredAddress, validateUrlTarget } from "../src/services/content/urlResolver.js";
+import { EventEmitter } from "node:events";
+import { attachSocketDiagnostics, extractUrls, isBlockedAddress, selectPreferredAddress, validateUrlTarget } from "../src/services/content/urlResolver.js";
 import { ContentError } from "../src/services/content/contentErrors.js";
 
 test("extractUrls extracts unique http and https URLs", () => {
@@ -73,4 +74,37 @@ test("selectPreferredAddress uses IPv6 when IPv4 is unavailable", () => {
 
 test("selectPreferredAddress returns null when no usable record exists", () => {
   assert.equal(selectPreferredAddress([]), null);
+});
+
+
+test("attachSocketDiagnostics reports TCP and TLS connection phases", () => {
+  const socket = new EventEmitter();
+  socket.remoteAddress = "203.0.113.10";
+  socket.remotePort = 443;
+  socket.authorized = true;
+  const events = [];
+
+  attachSocketDiagnostics(socket, (event, details) => events.push({ event, details }));
+  socket.emit("lookup", null, "203.0.113.10", 4);
+  socket.emit("connect");
+  socket.emit("secureConnect");
+
+  assert.deepEqual(events.map(item => item.event), [
+    "socket_lookup",
+    "tcp_connected",
+    "tls_connected",
+  ]);
+  assert.equal(events[1].details.remotePort, 443);
+  assert.equal(events[2].details.authorized, true);
+});
+
+test("attachSocketDiagnostics reports socket errors", () => {
+  const socket = new EventEmitter();
+  const events = [];
+
+  attachSocketDiagnostics(socket, (event, details) => events.push({ event, details }));
+  socket.emit("error", Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" }));
+
+  assert.equal(events[0].event, "socket_error");
+  assert.equal(events[0].details.code, "ECONNREFUSED");
 });
