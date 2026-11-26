@@ -100,7 +100,7 @@ export function selectPreferredAddress(records) {
 }
 
 function formatDnsRecords(records) {
-  return records.map(record => \`\\${record.address}/IPv\\${record.family}\\`).join(", ");
+  return records.map(record => `${record.address}/IPv${record.family}`).join(", ");
 }
 
 async function resolvePublicAddress(hostname) {
@@ -244,9 +244,37 @@ export async function fetchUrlContent(rawUrl, options = {}) {
       return { data, mimeType, size: data.length, finalUrl: currentUrl };
     } catch (err) {
       if (err instanceof ContentError) throw err;
-      if (err.name === "AbortError") throw new ContentError(CONTENT_ERROR_CODES.URL_TIMEOUT, `URL request timed out after ${timeoutMs}ms`);
-      throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, err.message);
-    } finally {
+
+      const errorDetails = {
+        name: err?.name,
+        code: err?.code,
+        type: err?.type,
+        cause: err?.cause
+          ? {
+              name: err.cause.name,
+              code: err.cause.code,
+              message: err.cause.message,
+            }
+          : undefined,
+        elapsedMs: Date.now() - startedAt,
+      };
+
+      if (err.name === "AbortError") {
+        logger.warn(
+          `URL fetch timed out: host=${parsedUrl.hostname} protocol=${parsedUrl.protocol} elapsedMs=${errorDetails.elapsedMs} timeoutMs=${timeoutMs} selected=${selectedAddress ? `${selectedAddress.address}/IPv${selectedAddress.family}` : "none"} error=${JSON.stringify(errorDetails)}`,
+        );
+        throw new ContentError(
+          CONTENT_ERROR_CODES.URL_TIMEOUT,
+          `URL request timed out after ${timeoutMs}ms`,
+          errorDetails,
+        );
+      }
+
+      logger.error(
+        `URL fetch failed: host=${parsedUrl.hostname} protocol=${parsedUrl.protocol} elapsedMs=${errorDetails.elapsedMs} selected=${selectedAddress ? `${selectedAddress.address}/IPv${selectedAddress.family}` : "none"} error=${JSON.stringify(errorDetails)}`,
+      );
+      throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, err.message, errorDetails);
+    }    } finally {
       clearTimeout(timeout);
     }
   }
