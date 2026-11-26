@@ -5,7 +5,9 @@ import { processTextContent, isSupportedTextMimeType } from "./processors/textPr
 import { processPdfContent, isSupportedPdfMimeType } from "./processors/pdfProcessor.js";
 import { processCsvContent, isSupportedCsvMimeType } from "./processors/csvProcessor.js";
 import { processHtmlContent, isSupportedHtmlMimeType } from "./processors/htmlProcessor.js";
+import { getContentLimits, truncateTextAtBlockBoundary } from "./contentLimits.js";
 import { CONTENT_ERROR_CODES, ContentError } from "./contentErrors.js";
+import logger from "../../utils/logger.js";
 
 const DEFAULT_MAX_CONTENTS = 10;
 
@@ -36,6 +38,47 @@ function processResolvedContent(content) {
   throw new ContentError(CONTENT_ERROR_CODES.UNSUPPORTED_MIME_TYPE, `Unsupported content MIME type: ${mimeType}`);
 }
 
+export function limitUrlHtmlContents(contents, maxTotalLength = getContentLimits().maxTotalUrlHtmlTextLength) {
+  let remaining = maxTotalLength;
+  let totalOriginalLength = 0;
+  let totalFinalLength = 0;
+
+  return contents.map(content => {
+    if (content.source?.type !== "url" || content.metadata?.processedAs !== "html") return content;
+
+    const index = content.representations?.findIndex(
+      representation => representation.type === "text" && typeof representation.text === "string",
+    ) ?? -1;
+    if (index < 0) return content;
+
+    const representation = content.representations[index];
+    const sourceText = representation.text;
+    totalOriginalLength += sourceText.length;
+    const limited = truncateTextAtBlockBoundary(sourceText, Math.max(remaining, 0));
+    remaining = Math.max(0, remaining - limited.text.length);
+    totalFinalLength += limited.text.length;
+
+    const representations = [...content.representations];
+    representations[index] = {
+      ...representation,
+      text: limited.text,
+      truncated: Boolean(representation.truncated || limited.truncated),
+      originalLength: representation.originalLength ?? sourceText.length,
+    };
+
+    return {
+      ...content,
+      representations,
+      metadata: {
+        ...(content.metadata || {}),
+        textTruncated: Boolean(content.metadata?.textTruncated || limited.truncated),
+        urlAggregateTruncated: limited.truncated,
+        finalTextLength: limited.text.length,
+      },
+    };
+  }).map(content => content);
+}
+
 export async function resolveMessageContents({ files = [], text = "" } = {}) {
   if (!Array.isArray(files)) throw new TypeError("files must be an array");
   if (typeof text !== "string") throw new TypeError("text must be a string");
@@ -53,7 +96,7 @@ export async function resolveMessageContents({ files = [], text = "" } = {}) {
     );
   }
 
-  const [fileContents, urlContents] = await Promise.all([
+  const [fileContents, resolvedUrlContents] = await Promise.all([
     supportedFiles.length > 0
       ? resolveSlackFiles(supportedFiles).then(contents => contents.map(processResolvedContent))
       : [],
@@ -61,6 +104,18 @@ export async function resolveMessageContents({ files = [], text = "" } = {}) {
       ? Promise.all(urls.map(resolveUrl)).then(contents => contents.map(processResolvedContent))
       : [],
   ]);
+
+  const urlContents = limitUrlHtmlContents(resolvedUrlContents);
+  const { maxTotalUrlHtmlTextLength } = getContentLimits();
+  const finalUrlHtmlLength = urlContents
+    .filter(content => content.source?.type === "url" && content.metadata?.processedAs === "html")
+    .reduce((sum, content) => {
+      const textRepresentation = content.representations?.find(
+        representation => representation.type === "text" && typeof representation.text === "string",
+      );
+      return sum + (textRepresentation?.text.length || 0);
+    }, 0);
+  logger.info(`URL HTML aggregate applied: finalTextLength=${finalUrlHtmlLength} maxTotalLength=${maxTotalUrlHtmlTextLength}`);
 
   return {
     contents: [...fileContents, ...urlContents],
