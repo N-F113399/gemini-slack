@@ -15,12 +15,17 @@ test("isSupportedFile rejects unsupported content types", () => {
   assert.equal(isSupportedFile({ mimetype: "application/x-msdownload" }), false);
 });
 
-test("limitUrlHtmlContents caps only URL HTML text and preserves other content", () => {
+test("limitUrlHtmlContents caps aggregate URL HTML text and preserves other content", () => {
   const contents = [
     {
       source: { type: "url" },
       metadata: { processedAs: "html" },
       representations: [{ type: "text", text: "one\n\ntwo\n\nthree", originalLength: 15 }],
+    },
+    {
+      source: { type: "url" },
+      metadata: { processedAs: "html" },
+      representations: [{ type: "text", text: "second content", originalLength: 14 }],
     },
     {
       source: { type: "slack_file" },
@@ -29,7 +34,9 @@ test("limitUrlHtmlContents caps only URL HTML text and preserves other content",
     },
   ];
   const limited = limitUrlHtmlContents(contents, 7);
-  assert.ok(limited[0].representations[0].text.length <= 7);
+  const totalLength = limited.slice(0, 2).reduce((sum, content) => sum + content.representations[0].text.length, 0);
+  assert.equal(totalLength, 7);
   assert.equal(limited[0].metadata.urlAggregateTruncated, true);
-  assert.equal(limited[1], contents[1]);
+  assert.equal(limited[1].metadata.urlAggregateTruncated, true);
+  assert.equal(limited[2], contents[2]);
 });
