@@ -88,11 +88,17 @@ test("attachSocketDiagnostics reports TCP and TLS connection phases", () => {
   socket.emit("lookup", null, "203.0.113.10", 4);
   socket.emit("connect");
   socket.emit("secureConnect");
+  socket.emit("timeout");
+  socket.emit("end");
+  socket.emit("close", false);
 
   assert.deepEqual(events.map(item => item.event), [
     "socket_lookup",
     "tcp_connected",
     "tls_connected",
+    "socket_timeout",
+    "socket_end",
+    "socket_closed",
   ]);
   assert.equal(events[1].details.remotePort, 443);
   assert.equal(events[2].details.authorized, true);
