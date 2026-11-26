@@ -26,6 +26,31 @@ function backoffDelay(attemptIndex) {
   return exp + Math.random() * 200;
 }
 
+/**
+ * Extract operational metadata without logging prompts or generated content.
+ * Exported so the response diagnostics can be tested without calling Gemini.
+ */
+export function getGeminiResponseDiagnostics(data) {
+  const candidate = data?.candidates?.[0];
+  const parts = candidate?.content?.parts || [];
+  const outputTextLength = parts.reduce(
+    (total, part) => total + (typeof part?.text === "string" ? part.text.length : 0),
+    0,
+  );
+  const usage = data?.usageMetadata || {};
+
+  return {
+    finishReason: candidate?.finishReason || "UNKNOWN",
+    model: data?.modelVersion || null,
+    candidateCount: Array.isArray(data?.candidates) ? data.candidates.length : 0,
+    outputTextLength,
+    promptBlockReason: data?.promptFeedback?.blockReason || null,
+    inputTokens: usage.promptTokenCount ?? usage.inputTokenCount ?? 0,
+    outputTokens: usage.candidatesTokenCount ?? usage.outputTokenCount ?? 0,
+    totalTokens: usage.totalTokenCount ?? null,
+  };
+}
+
 export async function generate({ contents, systemPrompt, usageTracker = defaultUsageTracker }) {
   const timeoutMsEnv = Number(process.env.GEMINI_TIMEOUT_MS);
   const timeoutMs = Number.isFinite(timeoutMsEnv) && timeoutMsEnv > 0 ? timeoutMsEnv : DEFAULT_TIMEOUT_MS;
@@ -68,7 +93,14 @@ export async function generate({ contents, systemPrompt, usageTracker = defaultU
       continue;
     }
 
-    logger.debug("📩 Gemini raw response:", JSON.stringify(data, null, 2));
+    const diagnostics = getGeminiResponseDiagnostics(data);
+    logger.info(
+      `Gemini response diagnostics: httpStatus=${res.status}, model=${diagnostics.model || currentModel}, finishReason=${diagnostics.finishReason}, candidates=${diagnostics.candidateCount}, outputTextLength=${diagnostics.outputTextLength}, inputTokens=${diagnostics.inputTokens}, outputTokens=${diagnostics.outputTokens}, totalTokens=${diagnostics.totalTokens ?? "unknown"}, promptBlockReason=${diagnostics.promptBlockReason || "none"}`,
+    );
+    if (diagnostics.finishReason !== "STOP" && diagnostics.finishReason !== "UNKNOWN") {
+      logger.warn(`Gemini generation ended with finishReason=${diagnostics.finishReason} (model=${diagnostics.model || currentModel}, outputTextLength=${diagnostics.outputTextLength})`);
+    }
+
     if (res.ok) {
       const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       replyText = candidateText ? candidateText.replace(/\n\n---\n使用モデル:.*$/s, "").trim() : "（応答がありませんでした）";
@@ -86,7 +118,7 @@ export async function generate({ contents, systemPrompt, usageTracker = defaultU
         inputTokens,
         outputTokens,
         totalTokens,
-        metadata: { model: responseModel },
+        metadata: { model: responseModel, finishReason: diagnostics.finishReason, outputTextLength: diagnostics.outputTextLength },
       });
       break;
     }
