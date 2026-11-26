@@ -111,9 +111,9 @@ async function resolvePublicAddress(hostname) {
   return records;
 }
 
-function createSafeAgent(protocol, hostname) {
+function createSafeAgent(protocol, hostname, onSocketEvent = () => {}) {
   const Agent = protocol === "https:" ? https.Agent : http.Agent;
-  return new Agent({
+  const agent = new Agent({
     keepAlive: false,
     lookup: (host, options, callback) => {
       dns.lookup(host, { all: true, verbatim: true }, (err, records) => {
@@ -130,6 +130,26 @@ function createSafeAgent(protocol, hostname) {
     },
     ...(protocol === "https:" ? { servername: hostname } : {}),
   });
+
+  const createConnection = agent.createConnection;
+  agent.createConnection = function createDiagnosedConnection(options, callback) {
+    const socket = createConnection.call(this, options, callback);
+    socket.once("lookup", (err, address, family) => {
+      onSocketEvent("socket_lookup", { error: err?.code, address, family });
+    });
+    socket.once("connect", () => {
+      onSocketEvent("tcp_connected", { remoteAddress: socket.remoteAddress, remotePort: socket.remotePort });
+    });
+    socket.once("secureConnect", () => {
+      onSocketEvent("tls_connected", { authorized: socket.authorized, authorizationError: socket.authorizationError });
+    });
+    socket.once("error", err => {
+      onSocketEvent("socket_error", { name: err.name, code: err.code, message: err.message });
+    });
+    return socket;
+  };
+
+  return agent;
 }
 
 export async function validateUrlTarget(rawUrl) {
@@ -207,6 +227,13 @@ export async function fetchUrlContent(rawUrl, options = {}) {
     );
 
     const controller = new AbortController();
+    let latestPhase = "request_started";
+    const logSocketEvent = (event, details = {}) => {
+      latestPhase = event;
+      logger.info(
+        `URL connection phase: host=${hostname} event=${event} elapsedMs=${Date.now() - startedAt} details=${JSON.stringify(details)}`,
+      );
+    };
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -214,7 +241,7 @@ export async function fetchUrlContent(rawUrl, options = {}) {
         method: "GET",
         redirect: "manual",
         headers: { "User-Agent": "gemini-slack-bot/1.0" },
-        agent: createSafeAgent(parsedUrl.protocol, hostname),
+        agent: createSafeAgent(parsedUrl.protocol, hostname, logSocketEvent),
         signal: controller.signal,
       });
 
@@ -263,7 +290,7 @@ export async function fetchUrlContent(rawUrl, options = {}) {
 
       if (err.name === "AbortError") {
         logger.warn(
-          `URL fetch timed out: host=${hostname} protocol=${parsedUrl.protocol} elapsedMs=${errorDetails.elapsedMs} timeoutMs=${timeoutMs} selected=${selectedAddress ? `${selectedAddress.address}/IPv${selectedAddress.family}` : "none"} error=${JSON.stringify(errorDetails)}`,
+          `URL fetch timed out: host=${hostname} protocol=${parsedUrl.protocol} phase=${latestPhase} elapsedMs=${errorDetails.elapsedMs} timeoutMs=${timeoutMs} selected=${selectedAddress ? `${selectedAddress.address}/IPv${selectedAddress.family}` : "none"} error=${JSON.stringify(errorDetails)}`,
         );
         throw new ContentError(
           CONTENT_ERROR_CODES.URL_TIMEOUT,
