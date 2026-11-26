@@ -298,7 +298,7 @@ export async function fetchUrlContent(rawUrl, options = {}) {
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
     const { parsed: parsedUrl, records: dnsRecords } = await resolveUrlTarget(currentUrl);
     const hostname = parsedUrl.hostname.replace(/^\\[|\\]$/g, "").toLowerCase();
-    const selectedAddress = selectPreferredAddress(dnsRecords);    const selectedAddress = selectPreferredAddress(dnsRecords);
+    const selectedAddress = selectPreferredAddress(dnsRecords);
     const startedAt = Date.now();
 
     logger.info(
