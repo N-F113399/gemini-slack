@@ -243,7 +243,7 @@ async function resolveUrlTarget(rawUrl) {
     throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, "URLs with embedded credentials are not allowed");
   }
 
-  const hostname = parsed.hostname.replace(/^\\[|\\]$/g, "").toLowerCase();
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) {
     throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, "Local hostnames are not allowed");
   }
@@ -297,7 +297,7 @@ export async function fetchUrlContent(rawUrl, options = {}) {
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
     const { parsed: parsedUrl, records: dnsRecords } = await resolveUrlTarget(currentUrl);
-    const hostname = parsedUrl.hostname.replace(/^\\[|\\]$/g, "").toLowerCase();
+    const hostname = parsedUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
     const selectedAddress = selectPreferredAddress(dnsRecords);
     const startedAt = Date.now();
 
