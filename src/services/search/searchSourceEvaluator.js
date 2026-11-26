@@ -58,7 +58,7 @@ function claimMarkers(text) {
   return new Set(
     (
       text.match(
-        /\b\d+(?:\.\d+)?\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(?:jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b/gi,
+        /\b\d+(?:\.\d+)?\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(?:jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b|\b(?:kb|mb|gb|tb|pb|bytes?)\b/gi,
       ) || []
     ).map(value => value.toLowerCase()),
   );
