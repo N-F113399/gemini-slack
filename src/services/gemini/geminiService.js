@@ -44,11 +44,28 @@ export function getGeminiResponseDiagnostics(data) {
     model: data?.modelVersion || null,
     candidateCount: Array.isArray(data?.candidates) ? data.candidates.length : 0,
     outputTextLength,
+    partCount: parts.length,
+    textPartLengths: parts
+      .filter(part => typeof part?.text === "string")
+      .map(part => part.text.length),
+    nonTextPartCount: parts.filter(part => typeof part?.text !== "string").length,
     promptBlockReason: data?.promptFeedback?.blockReason || null,
     inputTokens: usage.promptTokenCount ?? usage.inputTokenCount ?? 0,
     outputTokens: usage.candidatesTokenCount ?? usage.outputTokenCount ?? 0,
     totalTokens: usage.totalTokenCount ?? null,
   };
+}
+
+/**
+ * Extract all text parts from the first Gemini candidate in their original order.
+ * A candidate may contain multiple parts; non-text parts are intentionally ignored.
+ */
+export function getGeminiResponseText(data) {
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  return parts
+    .filter(part => typeof part?.text === "string")
+    .map(part => part.text)
+    .join("");
 }
 
 export async function generate({ contents, systemPrompt, usageTracker = defaultUsageTracker }) {
@@ -95,14 +112,14 @@ export async function generate({ contents, systemPrompt, usageTracker = defaultU
 
     const diagnostics = getGeminiResponseDiagnostics(data);
     logger.info(
-      `Gemini response diagnostics: httpStatus=${res.status}, model=${diagnostics.model || currentModel}, finishReason=${diagnostics.finishReason}, candidates=${diagnostics.candidateCount}, outputTextLength=${diagnostics.outputTextLength}, inputTokens=${diagnostics.inputTokens}, outputTokens=${diagnostics.outputTokens}, totalTokens=${diagnostics.totalTokens ?? "unknown"}, promptBlockReason=${diagnostics.promptBlockReason || "none"}`,
+      `Gemini response diagnostics: httpStatus=${res.status}, model=${diagnostics.model || currentModel}, finishReason=${diagnostics.finishReason}, candidates=${diagnostics.candidateCount}, parts=${diagnostics.partCount}, textPartLengths=${diagnostics.textPartLengths.join(",") || "none"}, nonTextParts=${diagnostics.nonTextPartCount}, outputTextLength=${diagnostics.outputTextLength}, inputTokens=${diagnostics.inputTokens}, outputTokens=${diagnostics.outputTokens}, totalTokens=${diagnostics.totalTokens ?? "unknown"}, promptBlockReason=${diagnostics.promptBlockReason || "none"}`,
     );
     if (diagnostics.finishReason !== "STOP" && diagnostics.finishReason !== "UNKNOWN") {
       logger.warn(`Gemini generation ended with finishReason=${diagnostics.finishReason} (model=${diagnostics.model || currentModel}, outputTextLength=${diagnostics.outputTextLength})`);
     }
 
     if (res.ok) {
-      const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const candidateText = getGeminiResponseText(data);
       replyText = candidateText ? candidateText.replace(/\n\n---\n使用モデル:.*$/s, "").trim() : "（応答がありませんでした）";
       responseModel = data?.modelVersion || currentModel;
       usageMetadata = data?.usageMetadata || usageMetadata;
