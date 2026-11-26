@@ -111,6 +111,30 @@ async function resolvePublicAddress(hostname) {
   return records;
 }
 
+export function createValidatedLookup(records) {
+  return (host, options, callback) => {
+    const requestedFamily = options?.family || 0;
+    const eligibleRecords = requestedFamily
+      ? records.filter(record => record.family === requestedFamily)
+      : records;
+    const selected = selectPreferredAddress(eligibleRecords);
+
+    if (!selected) {
+      const error = new Error("No validated address is available for the requested address family");
+      error.code = "ENOTFOUND";
+      callback(error);
+      return;
+    }
+
+    if (options?.all) {
+      callback(null, [{ address: selected.address, family: selected.family }]);
+      return;
+    }
+
+    callback(null, selected.address, selected.family);
+  };
+}
+
 export function attachSocketDiagnostics(socket, onSocketEvent = () => {}) {
   socket.once("lookup", (err, address, family) => {
     onSocketEvent("socket_lookup", { error: err?.code, address, family });
@@ -136,32 +160,36 @@ export function attachSocketDiagnostics(socket, onSocketEvent = () => {}) {
   return socket;
 }
 
-function createSafeAgent(protocol, hostname, onSocketEvent = () => {}) {
+function createSafeAgent(protocol, hostname, validatedRecords, onSocketEvent = () => {}) {
   const Agent = protocol === "https:" ? https.Agent : http.Agent;
+  const validatedLookup = createValidatedLookup(validatedRecords);
   const agent = new Agent({
     keepAlive: false,
     lookup: (host, options, callback) => {
-      onSocketEvent("agent_lookup_started", { host, family: options?.family, all: options?.all });
-      dns.lookup(host, { all: true, verbatim: true }, (err, records) => {
+      onSocketEvent("agent_lookup_started", {
+        host,
+        family: options?.family,
+        all: options?.all,
+        source: "validated_dns_records",
+      });
+      validatedLookup(host, options, (err, addressOrRecords, family) => {
         if (err) {
           onSocketEvent("agent_lookup_failed", { host, code: err.code, message: err.message });
-          return callback(err);
+          callback(err);
+          return;
         }
-        if (records.length === 0 || records.some(record => isBlockedAddress(record.address))) {
-          onSocketEvent("agent_lookup_blocked", { host, records: formatDnsRecords(records) });
-          return callback(new Error("URL resolves to a private or local network address"));
-        }
-        const selected = selectPreferredAddress(records);
-        if (!selected) {
-          onSocketEvent("agent_lookup_failed", { host, reason: "no_usable_address" });
-          return callback(new Error("No usable public network address found"));
-        }
+        const selected = Array.isArray(addressOrRecords)
+          ? addressOrRecords[0]
+          : { address: addressOrRecords, family };
         onSocketEvent("agent_lookup_completed", {
           host,
-          records: formatDnsRecords(records),
+          records: formatDnsRecords(validatedRecords),
           selected: `${selected.address}/IPv${selected.family}`,
+          all: options?.all,
+          source: "validated_dns_records",
         });
-        callback(null, selected.address, selected.family);
+        if (Array.isArray(addressOrRecords)) callback(null, addressOrRecords);
+        else callback(null, addressOrRecords, family);
       });
     },
     ...(protocol === "https:" ? { servername: hostname } : {}),
@@ -200,7 +228,7 @@ function createSafeAgent(protocol, hostname, onSocketEvent = () => {}) {
   return agent;
 }
 
-export async function validateUrlTarget(rawUrl) {
+async function resolveUrlTarget(rawUrl) {
   let parsed;
   try {
     parsed = new URL(rawUrl);
@@ -215,25 +243,32 @@ export async function validateUrlTarget(rawUrl) {
     throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, "URLs with embedded credentials are not allowed");
   }
 
-  const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const hostname = parsed.hostname.replace(/^\\[|\\]$/g, "").toLowerCase();
   if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) {
     throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, "Local hostnames are not allowed");
   }
 
   const literalFamily = net.isIP(hostname);
-  if (literalFamily && isBlockedAddress(hostname)) {
-    throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, "Private or local network addresses are not allowed");
-  }
-
-  if (!literalFamily) {
+  let records;
+  if (literalFamily) {
+    if (isBlockedAddress(hostname)) {
+      throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, "Private or local network addresses are not allowed");
+    }
+    records = [{ address: hostname, family: literalFamily }];
+  } else {
     try {
-      await resolvePublicAddress(hostname);
+      records = await resolvePublicAddress(hostname);
     } catch (err) {
       if (err instanceof ContentError) throw err;
       throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, `DNS resolution failed: ${err.message}`);
     }
   }
 
+  return { parsed, records };
+}
+
+export async function validateUrlTarget(rawUrl) {
+  const { parsed } = await resolveUrlTarget(rawUrl);
   return parsed;
 }
 
@@ -261,13 +296,9 @@ export async function fetchUrlContent(rawUrl, options = {}) {
   const timeoutMs = options.timeoutMs || getTimeoutMs();
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    const parsedUrl = await validateUrlTarget(currentUrl);
-    const hostname = parsedUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-    const literalFamily = net.isIP(hostname);
-    const dnsRecords = literalFamily
-      ? [{ address: hostname, family: literalFamily }]
-      : await dns.lookup(hostname, { all: true, verbatim: true });
-    const selectedAddress = selectPreferredAddress(dnsRecords);
+    const { parsed: parsedUrl, records: dnsRecords } = await resolveUrlTarget(currentUrl);
+    const hostname = parsedUrl.hostname.replace(/^\\[|\\]$/g, "").toLowerCase();
+    const selectedAddress = selectPreferredAddress(dnsRecords);    const selectedAddress = selectPreferredAddress(dnsRecords);
     const startedAt = Date.now();
 
     logger.info(
@@ -289,7 +320,7 @@ export async function fetchUrlContent(rawUrl, options = {}) {
         method: "GET",
         redirect: "manual",
         headers: { "User-Agent": "gemini-slack-bot/1.0" },
-        agent: createSafeAgent(parsedUrl.protocol, hostname, logSocketEvent),
+        agent: createSafeAgent(parsedUrl.protocol, hostname, dnsRecords, logSocketEvent),
         signal: controller.signal,
       });
 
