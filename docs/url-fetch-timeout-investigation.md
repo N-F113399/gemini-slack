@@ -191,3 +191,21 @@ IPv4/IPv6の選択改善を理由に、DNSチェックを省略したり、検�
 最も疑うべき実装上の問題は、DNSの複数アドレスから records[0] を無条件に選択している点。
 
 ただし、これはまだ仮説であり、診断ログによって確認してからフォールバック等の追加対応を行う。
+
+
+## 9. 今回実装した内容
+
+今回の対応では、原因を隠して単純にタイムアウトを延長するのではなく、以下を実装した。
+
+- URL fetch開始時のhostname / protocol / timeout / DNSアドレス一覧 / 選択アドレス / redirectCountをログ出力
+- HTTPレスポンス到着時のstatus / elapsedMsをログ出力
+- body読み込み完了時のMIME / size / elapsedMs / finalUrlをログ出力
+- timeout時にname / code / type / cause / elapsedMsをContentError.detailsへ保持
+- 通常のnetwork errorについても診断情報を保持・ログ出力
+- DNSアドレス選択をIPv4優先へ変更
+- IPv6しかない場合はIPv6を利用する
+- URL Resolverの単体テストにIPv4優先・IPv6フォールバック候補の選択テストを追加
+
+この段階では、複数IPを実際に順番に再接続する「接続先フォールバック」までは実装していない。
+
+次のRender実環境でのログ確認結果をもとに、IPv6経路が原因なら接続先フォールバックを追加する。
