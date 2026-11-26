@@ -209,3 +209,52 @@ IPv4/IPv6の選択改善を理由に、DNSチェックを省略したり、検�
 この段階では、複数IPを実際に順番に再接続する「接続先フォールバック」までは実装していない。
 
 次のRender実環境でのログ確認結果をもとに、IPv6経路が原因なら接続先フォールバックを追加する。
+
+
+## 10. Renderログを受けた追加調査
+
+### 10.1 追加ログから分かったこと
+
+Renderで取得したログでは、次の状態まで確認できた。
+
+- DNS解決は成功している
+- IPv4アドレス（`208.80.154.224`）が選択されている
+- `URL fetch started` は出力されている
+- 10秒後にAbortControllerによるタイムアウトが発生している
+- `URL response received` は出力されていない
+
+したがって、今回の停止箇所はbody読み込みより前であり、`await fetch()` がHTTPレスポンスヘッダーを受け取る前に停止している。候補はTCP接続、TLSハンドシェイク、HTTPレスポンスヘッダー待ちである。IPv6アドレス選択が直接の原因という仮説は、今回のログでは支持されない。
+
+### 10.2 今回追加した接続フェーズログ
+
+`urlResolver.js` のHTTPS/HTTP Agentが生成するSocketにイベントリスナーを追加し、以下を記録する。
+
+- `socket_lookup`: Socket側のDNS lookupイベント
+- `tcp_connected`: TCP接続完了（`connect`）
+- `tls_connected`: TLSハンドシェイク完了（HTTPSの`secureConnect`）
+- `socket_error`: Socketエラーのname / code / message
+- 既存の `URL response received`: HTTPレスポンス受信
+
+各ログには開始からの`elapsedMs`を含める。タイムアウトログには最後に到達したフェーズを`phase`として出力する。
+
+ログの読み方:
+
+| 最後に確認できたイベント | 主に疑う箇所 |
+| --- | --- |
+| `request_started` のみ | Socket生成前、Agent、または接続開始前 |
+| `socket_lookup` のみ | TCP接続確立までのネットワーク経路 |
+| `tcp_connected` まで | TLSハンドシェイク |
+| `tls_connected` まで | HTTPレスポンスヘッダー待ち |
+| `URL response received` まで | HTTP応答後。body読み込み等を調査 |
+
+### 10.3 次の確認
+
+この変更をRenderへデプロイし、以下を確認する。
+
+1. Wikipedia URL
+2. t.co URL
+3. `https://example.com/` のような単純なHTTPS URL
+
+ログにより停止フェーズを特定した後、Render環境内で可能なら同じURLに対して`curl -4 -v --max-time 10`を実行し、Node.js実装固有の問題か、Renderから外部への接続経路の問題かを比較する。
+
+この段階では、接続先フォールバック、リトライ、タイムアウト延長は追加しない。原因が分かってから最小限の対策を選択する。
