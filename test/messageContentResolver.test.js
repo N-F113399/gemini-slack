@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isSupportedFile } from "../src/services/content/messageContentResolver.js";
+import { isSupportedFile, limitUrlHtmlContents } from "../src/services/content/messageContentResolver.js";
 
 test("isSupportedFile recognizes the supported content families", () => {
   assert.equal(isSupportedFile({ mimetype: "image/png" }), true);
@@ -13,4 +13,23 @@ test("isSupportedFile recognizes the supported content families", () => {
 test("isSupportedFile rejects unsupported content types", () => {
   assert.equal(isSupportedFile({ mimetype: "application/zip" }), false);
   assert.equal(isSupportedFile({ mimetype: "application/x-msdownload" }), false);
+});
+
+test("limitUrlHtmlContents caps only URL HTML text and preserves other content", () => {
+  const contents = [
+    {
+      source: { type: "url" },
+      metadata: { processedAs: "html" },
+      representations: [{ type: "text", text: "one\n\ntwo\n\nthree", originalLength: 15 }],
+    },
+    {
+      source: { type: "slack_file" },
+      metadata: { processedAs: "text" },
+      representations: [{ type: "text", text: "attachment text" }],
+    },
+  ];
+  const limited = limitUrlHtmlContents(contents, 7);
+  assert.ok(limited[0].representations[0].text.length <= 7);
+  assert.equal(limited[0].metadata.urlAggregateTruncated, true);
+  assert.equal(limited[1], contents[1]);
 });
