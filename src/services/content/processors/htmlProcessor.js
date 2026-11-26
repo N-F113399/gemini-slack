@@ -29,7 +29,7 @@ function decodeCodePoint(value) {
   const codePoint = Number(value);
   return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
     ? String.fromCodePoint(codePoint)
-    : "\\uFFFD";
+    : "\uFFFD";
 }
 
 function decodeHtmlEntities(text) {
@@ -61,8 +61,8 @@ function parseAttributes(source) {
 function parseHtmlTree(html) {
   const root = { tag: "#root", attributes: {}, children: [] };
   const stack = [root];
-  const source = html.replace(/<(script|style|noscript|iframe)\\b[^>]*>[\\s\\S]*?<\\/\\1\\s*>/gi, " ");
-  const tokens = source.match(/<!--[\\s\\S]*?-->|<![^>]*>|<\\/?[a-z][^>]*>|[^<]+|</gi) || [];
+  const source = html.replace(/<(script|style|noscript|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ");
+  const tokens = source.match(/<!--[\s\S]*?-->|<![^>]*>|<\/?[a-z][^>]*>|[^<]+|</gi) || [];
 
   for (const token of tokens) {
     if (token.startsWith("<!--") || /^<!/i.test(token)) continue;
