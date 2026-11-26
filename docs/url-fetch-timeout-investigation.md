@@ -250,3 +250,31 @@ Renderで取得したログでは、次の状態まで確認できた。
 ログにより停止フェーズを特定した後、Render環境内で可能なら同じURLに対して`curl -4 -v --max-time 10`を実行し、Node.js実装固有の問題か、Renderから外部への接続経路の問題かを比較する。
 
 この段階では、接続先フォールバック、リトライ、タイムアウト延長は追加しない。原因が分かってから最小限の対策を選択する。
+
+
+## 11. 検証済みDNSレコードの再利用とlookup API修正
+
+直近のRenderログでは、`agent_lookup_started` は出力されたが `agent_lookup_completed` が出力されず、タイムアウト時点でも `phase=socket_creation_returned` だった。
+
+調査の結果、Agentに渡している独自lookup実装にNode.jsのcallback仕様との不整合があった。Node.jsから `options.all === true` で呼ばれた場合、lookup callbackには単一のaddress/familyではなく、address/familyオブジェクトの配列を返す必要がある。
+
+今回の修正:
+
+- URL検証時にDNS解決した全レコードを、そのリクエストの接続処理まで引き継ぐ
+- Agent内部で同じホストを再度DNS解決しない
+- Agentのlookupは検証済みレコードからIPv4優先で選択する
+- `options.all === true` の場合は配列形式でcallbackを呼ぶ
+- `options.all !== true` の場合はaddress/family形式でcallbackを呼ぶ
+- `options.family` が指定されている場合は、そのfamilyの検証済みアドレスだけを選択する
+- DNSレコードはリクエストごと・リダイレクトごとに解決し直す。別リクエスト間でキャッシュしない
+
+これにより、URL検証時に安全と判断したIPアドレスと、実際の接続に使うIPアドレスが一致する。リダイレクト先も各ループで改めて検証するため、SSRF対策は維持する。
+
+追加した単体テスト:
+
+- `all: true` の配列形式
+- `all: false` のaddress/family形式
+- family指定時の選択
+- 要求familyのアドレスが存在しない場合のエラー
+
+この修正後、Renderログでは `agent_lookup_completed` が `source=validated_dns_records` とともに出ることを確認する。その後 `tcp_connected`、`tls_connected`、`URL response received` まで進むかを確認する。
