@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getContentLimits, truncateContentText } from "../src/services/content/contentLimits.js";
+import { getContentLimits, truncateContentText, truncateTextAtBlockBoundary } from "../src/services/content/contentLimits.js";
 
 test("getContentLimits returns safe defaults", () => {
   const original = process.env.MAX_MESSAGE_CONTENTS;
   delete process.env.MAX_MESSAGE_CONTENTS;
   const limits = getContentLimits();
   assert.equal(limits.maxMessageContents, 10);
+  assert.equal(limits.maxUrlHtmlTextLength, 30_000);
+  assert.equal(limits.maxTotalUrlHtmlTextLength, 50_000);
   if (original !== undefined) process.env.MAX_MESSAGE_CONTENTS = original;
 });
 
@@ -31,5 +33,13 @@ test("truncateContentText preserves short content", () => {
     text: "abc",
     truncated: false,
     originalLength: 3,
+  });
+});
+
+test("truncateTextAtBlockBoundary prefers a complete paragraph", () => {
+  assert.deepEqual(truncateTextAtBlockBoundary("first\n\nsecond\n\nthird", 15), {
+    text: "first",
+    truncated: true,
+    originalLength: 21,
   });
 });
