@@ -194,14 +194,16 @@ export async function fetchUrlContent(rawUrl, options = {}) {
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
     const parsedUrl = await validateUrlTarget(currentUrl);
-    const dnsRecords = net.isIP(parsedUrl.hostname)
-      ? [{ address: parsedUrl.hostname, family: net.isIP(parsedUrl.hostname) }]
-      : await dns.lookup(parsedUrl.hostname, { all: true, verbatim: true });
+    const hostname = parsedUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const literalFamily = net.isIP(hostname);
+    const dnsRecords = literalFamily
+      ? [{ address: hostname, family: literalFamily }]
+      : await dns.lookup(hostname, { all: true, verbatim: true });
     const selectedAddress = selectPreferredAddress(dnsRecords);
     const startedAt = Date.now();
 
     logger.info(
-      \`URL fetch started: host=\\${parsedUrl.hostname} protocol=\\${parsedUrl.protocol} timeoutMs=\\${timeoutMs} addresses=[\\${formatDnsRecords(dnsRecords)}] selected=\\${selectedAddress ? \`${selectedAddress.address}/IPv${selectedAddress.family}\` : "none"} redirectCount=\\${redirectCount}\`,
+      `URL fetch started: host=${hostname} protocol=${parsedUrl.protocol} timeoutMs=${timeoutMs} addresses=[${formatDnsRecords(dnsRecords)}] selected=${selectedAddress ? `${selectedAddress.address}/IPv${selectedAddress.family}` : "none"} redirectCount=${redirectCount}`,
     );
 
     const controller = new AbortController();
@@ -212,12 +214,12 @@ export async function fetchUrlContent(rawUrl, options = {}) {
         method: "GET",
         redirect: "manual",
         headers: { "User-Agent": "gemini-slack-bot/1.0" },
-        agent: createSafeAgent(parsedUrl.protocol, parsedUrl.hostname),
+        agent: createSafeAgent(parsedUrl.protocol, hostname),
         signal: controller.signal,
       });
 
       logger.info(
-        \`URL response received: host=\\${parsedUrl.hostname} status=\\${response.status} elapsedMs=\\${Date.now() - startedAt}\`,
+        `URL response received: host=${hostname} status=${response.status} elapsedMs=${Date.now() - startedAt}`,
       );
 
       if ([301, 302, 303, 307, 308].includes(response.status)) {
@@ -239,7 +241,7 @@ export async function fetchUrlContent(rawUrl, options = {}) {
 
       const data = await readResponseBody(response, maxResponseSize);
       logger.info(
-        \`URL fetch completed: host=\\${parsedUrl.hostname} status=\\${response.status} mimeType=\\${mimeType} size=\\${data.length} elapsedMs=\\${Date.now() - startedAt} finalUrl=\\${currentUrl}\`,
+        `URL fetch completed: host=${hostname} status=${response.status} mimeType=${mimeType} size=${data.length} elapsedMs=${Date.now() - startedAt} finalUrl=${currentUrl}`,
       );
       return { data, mimeType, size: data.length, finalUrl: currentUrl };
     } catch (err) {
@@ -261,7 +263,7 @@ export async function fetchUrlContent(rawUrl, options = {}) {
 
       if (err.name === "AbortError") {
         logger.warn(
-          `URL fetch timed out: host=${parsedUrl.hostname} protocol=${parsedUrl.protocol} elapsedMs=${errorDetails.elapsedMs} timeoutMs=${timeoutMs} selected=${selectedAddress ? `${selectedAddress.address}/IPv${selectedAddress.family}` : "none"} error=${JSON.stringify(errorDetails)}`,
+          `URL fetch timed out: host=${hostname} protocol=${parsedUrl.protocol} elapsedMs=${errorDetails.elapsedMs} timeoutMs=${timeoutMs} selected=${selectedAddress ? `${selectedAddress.address}/IPv${selectedAddress.family}` : "none"} error=${JSON.stringify(errorDetails)}`,
         );
         throw new ContentError(
           CONTENT_ERROR_CODES.URL_TIMEOUT,
@@ -271,17 +273,16 @@ export async function fetchUrlContent(rawUrl, options = {}) {
       }
 
       logger.error(
-        `URL fetch failed: host=${parsedUrl.hostname} protocol=${parsedUrl.protocol} elapsedMs=${errorDetails.elapsedMs} selected=${selectedAddress ? `${selectedAddress.address}/IPv${selectedAddress.family}` : "none"} error=${JSON.stringify(errorDetails)}`,
+        `URL fetch failed: host=${hostname} protocol=${parsedUrl.protocol} elapsedMs=${errorDetails.elapsedMs} selected=${selectedAddress ? `${selectedAddress.address}/IPv${selectedAddress.family}` : "none"} error=${JSON.stringify(errorDetails)}`,
       );
       throw new ContentError(CONTENT_ERROR_CODES.INVALID_CONTENT, err.message, errorDetails);
-    }    } finally {
+    } finally {
       clearTimeout(timeout);
     }
   }
 
   throw new ContentError(CONTENT_ERROR_CODES.URL_BLOCKED, "URL request could not be completed");
 }
-
 export async function resolveUrl(rawUrl) {
   const result = await fetchUrlContent(rawUrl);
   return createContent({
