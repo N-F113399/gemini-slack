@@ -201,27 +201,43 @@ Renderで取得したログでは、次の状態まで確認できた。
 
 したがって、今回の停止箇所はbody読み込みより前であり、`await fetch()` がHTTPレスポンスヘッダーを受け取る前に停止している。候補はTCP接続、TLSハンドシェイク、HTTPレスポンスヘッダー待ちである。IPv6アドレス選択が直接の原因という仮説は、今回のログでは支持されない。
 
-### 10.2 今回追加した接続フェーズログ
+### 10.2 接続フェーズログと追加診断
 
-`urlResolver.js` のHTTPS/HTTP Agentが生成するSocketにイベントリスナーを追加し、以下を記録する。
+最初のSocketイベントログでは、Socket生成後にイベントリスナーを登録していたため、接続開始直後のイベントを取りこぼす可能性が残っていた。また、Renderログで `phase=request_started` のままだったことだけでは、Agentが接続処理を開始していないとは断定できなかった。
 
-- `socket_lookup`: Socket側のDNS lookupイベント
+そこで、Socketイベントだけでなく、Agent内部の処理開始点も記録するようにした。
+
+- `agent_create_connection_called`: Agentの `createConnection()` 呼び出し
+- `socket_creation_started`: Node.jsのSocket生成処理を呼ぶ直前
+- `socket_creation_returned`: Socket生成処理から戻った直後（Socketの有無・型も記録）
+- `socket_creation_failed`: Socket生成処理が同期例外を投げた場合
+- `agent_lookup_started`: Agentが独自lookupを呼び出した時点
+- `agent_lookup_completed`: Agent用DNS解決と接続先IP選択が完了した時点
+- `agent_lookup_failed` / `agent_lookup_blocked`: DNS失敗またはSSRF検証による拒否
+- `socket_lookup`: Socket側のlookupイベント
 - `tcp_connected`: TCP接続完了（`connect`）
 - `tls_connected`: TLSハンドシェイク完了（HTTPSの`secureConnect`）
 - `socket_error`: Socketエラーのname / code / message
+- `socket_timeout` / `socket_end` / `socket_closed`: Socketのtimeout・終了・close
 - 既存の `URL response received`: HTTPレスポンス受信
 
-各ログには開始からの`elapsedMs`を含める。タイムアウトログには最後に到達したフェーズを`phase`として出力する。
+各イベントには開始からの`elapsedMs`を付ける。タイムアウトログの`phase`は、最後に観測したAgent / Socketイベントを示す。
 
 ログの読み方:
 
 | 最後に確認できたイベント | 主に疑う箇所 |
 | --- | --- |
-| `request_started` のみ | Socket生成前、Agent、または接続開始前 |
-| `socket_lookup` のみ | TCP接続確立までのネットワーク経路 |
+| `request_started` のみ | fetchからAgentの `createConnection()` 呼び出しまで |
+| `agent_create_connection_called` のみ | Socket生成処理の開始直後 |
+| `socket_creation_started` のみ | Node.js AgentのSocket生成処理内 |
+| `socket_creation_returned` まで | Socket生成後。lookup開始ログの有無を確認 |
+| `agent_lookup_started` のみ | Agent用DNS解決中 |
+| `agent_lookup_completed` まで | DNS解決完了後、TCP接続確立まで |
 | `tcp_connected` まで | TLSハンドシェイク |
 | `tls_connected` まで | HTTPレスポンスヘッダー待ち |
 | `URL response received` まで | HTTP応答後。body読み込み等を調査 |
+
+注意: Node.jsのSocket生成・イベント発火順序によっては、Socket側の `lookup` イベントが発生しない場合がある。今回追加した `agent_lookup_started/completed` は、独自lookup関数が実際に呼ばれたかを直接確認するためのログである。
 
 ### 10.3 次の確認
 
