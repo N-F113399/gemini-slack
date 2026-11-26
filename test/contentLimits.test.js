@@ -40,6 +40,6 @@ test("truncateTextAtBlockBoundary prefers a complete paragraph", () => {
   assert.deepEqual(truncateTextAtBlockBoundary("first\n\nsecond\n\nthird", 15), {
     text: "first",
     truncated: true,
-    originalLength: 21,
+    originalLength: 20,
   });
 });
