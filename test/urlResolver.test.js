@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractUrls, isBlockedAddress, validateUrlTarget } from "../src/services/content/urlResolver.js";
+import { extractUrls, isBlockedAddress, selectPreferredAddress, validateUrlTarget } from "../src/services/content/urlResolver.js";
 import { ContentError } from "../src/services/content/contentErrors.js";
 
 test("extractUrls extracts unique http and https URLs", () => {
@@ -49,4 +49,28 @@ test("validateUrlTarget rejects embedded credentials", async () => {
     () => validateUrlTarget("https://user:pass@example.com/"),
     error => error instanceof ContentError && error.code === "URL_BLOCKED",
   );
+});
+
+
+test("selectPreferredAddress prefers IPv4 when both families are available", () => {
+  assert.deepEqual(
+    selectPreferredAddress([
+      { address: "2001:db8::1", family: 6 },
+      { address: "203.0.113.10", family: 4 },
+    ]),
+    { address: "203.0.113.10", family: 4 },
+  );
+});
+
+test("selectPreferredAddress uses IPv6 when IPv4 is unavailable", () => {
+  assert.deepEqual(
+    selectPreferredAddress([
+      { address: "2001:db8::1", family: 6 },
+    ]),
+    { address: "2001:db8::1", family: 6 },
+  );
+});
+
+test("selectPreferredAddress returns null when no usable record exists", () => {
+  assert.equal(selectPreferredAddress([]), null);
 });
