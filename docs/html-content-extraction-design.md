@@ -295,3 +295,19 @@ Gemini adapter、Gemini API呼び出し、URL取得・DNS検証の仕様変更�
 - URL取得タイムアウトやSSRF対策の変更
 
 これらは今回のHTML本文抽出の効果を確認した後、必要性があれば別途検討する。
+
+
+## 14. 初回実装時の設計差分・制約
+
+初回実装では、作業環境からnpmレジストリへ接続できず、Cheerioの依存追加とpackage-lockの正規生成・検証ができなかった。そのため、lockfileを不整合な状態にしないことを優先し、依存追加なしの簡易HTMLツリー解析を暫定採用した。
+
+この実装は静的HTMLの基本的なタグ構造を解析し、本文候補選択・不要要素除去・構造を保ったテキスト化を行う。ただし、Cheerio等のHTML5準拠パーサーと同等ではない。特に、壊れたHTML、複雑な属性値、HTML5の省略タグ、全Named Character Referencesのデコードには制約がある。
+
+したがって、初回実装のテストと実ページでの抽出品質確認を必須とする。開発環境でnpmレジストリへ接続できる状態になった段階で、Cheerioを導入して簡易パーサーを置き換えることを推奨する。置き換え時はpackage.jsonとpackage-lock.jsonを同一のnpm操作で更新し、Node.jsバージョンとの互換性も確認する。
+
+初回実装で追加した設定:
+
+- `MAX_URL_HTML_TEXT_LENGTH`: URL HTML単位の上限。デフォルト30,000文字
+- `MAX_TOTAL_URL_HTML_TEXT_LENGTH`: URL HTML全体の上限。デフォルト50,000文字
+
+これらはHTML URLコンテンツのみに適用し、Slack添付ファイル由来のテキストやPDF等の既存制限には適用しない。
