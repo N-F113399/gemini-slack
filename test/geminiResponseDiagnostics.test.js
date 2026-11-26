@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getGeminiResponseDiagnostics } from "../src/services/gemini/geminiService.js";
+import { getGeminiResponseDiagnostics, getGeminiResponseText } from "../src/services/gemini/geminiService.js";
 
 test("Gemini diagnostics capture finish reason, model, output length, and token usage", () => {
   const diagnostics = getGeminiResponseDiagnostics({
@@ -61,4 +61,41 @@ test("Gemini diagnostics handle missing candidate metadata", () => {
     outputTokens: 0,
     totalTokens: null,
   });
+});
+
+
+test("Gemini response text concatenates all text parts in order and ignores non-text parts", () => {
+  const data = {
+    candidates: [{
+      content: {
+        parts: [
+          { text: "また急に、そんな短い言葉で" },
+          { inlineData: { mimeType: "image/png" } },
+          { text: "私を試すの？" },
+        ],
+      },
+    }],
+  };
+
+  assert.equal(getGeminiResponseText(data), "また急に、そんな短い言葉で私を試すの？");
+});
+
+test("Gemini response text handles missing candidates and parts", () => {
+  assert.equal(getGeminiResponseText({}), "");
+  assert.equal(getGeminiResponseText({ candidates: [{ content: { parts: [] } }] }), "");
+});
+
+test("Gemini diagnostics report part counts and text lengths without logging content", () => {
+  const diagnostics = getGeminiResponseDiagnostics({
+    candidates: [{
+      content: {
+        parts: [{ text: "first" }, { inlineData: { mimeType: "image/png" } }, { text: "second!" }],
+      },
+    }],
+  });
+
+  assert.equal(diagnostics.partCount, 3);
+  assert.deepEqual(diagnostics.textPartLengths, [5, 7]);
+  assert.equal(diagnostics.nonTextPartCount, 1);
+  assert.equal(diagnostics.outputTextLength, 12);
 });
