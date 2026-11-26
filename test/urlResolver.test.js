@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { attachSocketDiagnostics, extractUrls, isBlockedAddress, selectPreferredAddress, validateUrlTarget } from "../src/services/content/urlResolver.js";
+import { attachSocketDiagnostics, createValidatedLookup, extractUrls, isBlockedAddress, selectPreferredAddress, validateUrlTarget } from "../src/services/content/urlResolver.js";
 import { ContentError } from "../src/services/content/contentErrors.js";
 
 test("extractUrls extracts unique http and https URLs", () => {
@@ -74,6 +74,54 @@ test("selectPreferredAddress uses IPv6 when IPv4 is unavailable", () => {
 
 test("selectPreferredAddress returns null when no usable record exists", () => {
   assert.equal(selectPreferredAddress([]), null);
+});
+
+test("createValidatedLookup returns the selected address in Node lookup all:true format", () => {
+  const lookup = createValidatedLookup([
+    { address: "2001:4860:4860::8888", family: 6 },
+    { address: "8.8.8.8", family: 4 },
+  ]);
+
+  lookup("example.com", { all: true, family: 0 }, (error, records) => {
+    assert.ifError(error);
+    assert.deepEqual(records, [{ address: "8.8.8.8", family: 4 }]);
+  });
+});
+
+test("createValidatedLookup returns address and family when all is false", () => {
+  const lookup = createValidatedLookup([
+    { address: "2001:4860:4860::8888", family: 6 },
+    { address: "8.8.8.8", family: 4 },
+  ]);
+
+  lookup("example.com", { all: false, family: 0 }, (error, address, family) => {
+    assert.ifError(error);
+    assert.equal(address, "8.8.8.8");
+    assert.equal(family, 4);
+  });
+});
+
+test("createValidatedLookup honors a requested address family", () => {
+  const lookup = createValidatedLookup([
+    { address: "2001:4860:4860::8888", family: 6 },
+    { address: "8.8.8.8", family: 4 },
+  ]);
+
+  lookup("example.com", { all: false, family: 6 }, (error, address, family) => {
+    assert.ifError(error);
+    assert.equal(address, "2001:4860:4860::8888");
+    assert.equal(family, 6);
+  });
+});
+
+test("createValidatedLookup errors when the requested family is unavailable", () => {
+  const lookup = createValidatedLookup([
+    { address: "8.8.8.8", family: 4 },
+  ]);
+
+  lookup("example.com", { all: true, family: 6 }, error => {
+    assert.equal(error.code, "ENOTFOUND");
+  });
 });
 
 
