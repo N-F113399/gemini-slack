@@ -40,9 +40,6 @@ function processResolvedContent(content) {
 
 export function limitUrlHtmlContents(contents, maxTotalLength = getContentLimits().maxTotalUrlHtmlTextLength) {
   let remaining = maxTotalLength;
-  let totalOriginalLength = 0;
-  let totalFinalLength = 0;
-
   return contents.map(content => {
     if (content.source?.type !== "url" || content.metadata?.processedAs !== "html") return content;
 
@@ -53,10 +50,8 @@ export function limitUrlHtmlContents(contents, maxTotalLength = getContentLimits
 
     const representation = content.representations[index];
     const sourceText = representation.text;
-    totalOriginalLength += sourceText.length;
     const limited = truncateTextAtBlockBoundary(sourceText, Math.max(remaining, 0));
     remaining = Math.max(0, remaining - limited.text.length);
-    totalFinalLength += limited.text.length;
 
     const representations = [...content.representations];
     representations[index] = {
@@ -76,7 +71,7 @@ export function limitUrlHtmlContents(contents, maxTotalLength = getContentLimits
         finalTextLength: limited.text.length,
       },
     };
-  }).map(content => content);
+  });
 }
 
 export async function resolveMessageContents({ files = [], text = "" } = {}) {
