@@ -111,6 +111,22 @@ async function resolvePublicAddress(hostname) {
   return records;
 }
 
+export function attachSocketDiagnostics(socket, onSocketEvent = () => {}) {
+  socket.once("lookup", (err, address, family) => {
+    onSocketEvent("socket_lookup", { error: err?.code, address, family });
+  });
+  socket.once("connect", () => {
+    onSocketEvent("tcp_connected", { remoteAddress: socket.remoteAddress, remotePort: socket.remotePort });
+  });
+  socket.once("secureConnect", () => {
+    onSocketEvent("tls_connected", { authorized: socket.authorized, authorizationError: socket.authorizationError });
+  });
+  socket.once("error", err => {
+    onSocketEvent("socket_error", { name: err.name, code: err.code, message: err.message });
+  });
+  return socket;
+}
+
 function createSafeAgent(protocol, hostname, onSocketEvent = () => {}) {
   const Agent = protocol === "https:" ? https.Agent : http.Agent;
   const agent = new Agent({
@@ -134,19 +150,7 @@ function createSafeAgent(protocol, hostname, onSocketEvent = () => {}) {
   const createConnection = agent.createConnection;
   agent.createConnection = function createDiagnosedConnection(options, callback) {
     const socket = createConnection.call(this, options, callback);
-    socket.once("lookup", (err, address, family) => {
-      onSocketEvent("socket_lookup", { error: err?.code, address, family });
-    });
-    socket.once("connect", () => {
-      onSocketEvent("tcp_connected", { remoteAddress: socket.remoteAddress, remotePort: socket.remotePort });
-    });
-    socket.once("secureConnect", () => {
-      onSocketEvent("tls_connected", { authorized: socket.authorized, authorizationError: socket.authorizationError });
-    });
-    socket.once("error", err => {
-      onSocketEvent("socket_error", { name: err.name, code: err.code, message: err.message });
-    });
-    return socket;
+    return attachSocketDiagnostics(socket, onSocketEvent);
   };
 
   return agent;
