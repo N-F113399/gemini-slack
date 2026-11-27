@@ -14,6 +14,8 @@ const REMOVE_ELEMENTS = new Set([
   "input", "select", "textarea", "nav",
 ]);
 const REMOVE_HINTS = /(?:^|[-_\s])(advert|advertisement|ads?|ad-container|cookie|cookie-banner|consent|breadcrumb|sidebar|social|share|related|recommend|pagination|menu|toolbar)(?:$|[-_\s])/i;
+const POSITIVE_HINTS = /(?:^|[-_\s])(content|article|main|post|entry|documentation|docs)(?:$|[-_\s])/i;
+const NEGATIVE_HINTS = /(?:^|[-_\s])(nav|navigation|sidebar|footer|header|advert|advertisement|ads?|cookie|cookie-banner|consent|share|related|recommend|pagination|menu|toolbar)(?:$|[-_\s])/i;
 const BLOCK_ELEMENTS = new Set([
   "address", "article", "blockquote", "dd", "div", "dl", "dt", "fieldset",
   "figcaption", "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -289,7 +291,7 @@ function extractNodeText(node, maxLength = Infinity) {
       return;
     }
     if (current.tag === "br" || current.tag === "hr") {
-      append("\\n");
+      append("\n");
       return;
     }
 
@@ -300,12 +302,12 @@ function extractNodeText(node, maxLength = Infinity) {
     }
     const childText = output.slice(childTextStart);
 
-    if (current.tag === "pre") append("\\n" + codeFence + "\\n" + childText.trim() + "\\n" + codeFence + "\\n");
-    else if (current.tag === "li") append("\\n- " + childText.trim() + "\\n");
-    else if (/^h[1-6]$/.test(current.tag)) append("\\n\\n" + "#".repeat(Number(current.tag[1])) + " " + childText.trim() + "\\n\\n");
+    if (current.tag === "pre") append("\n" + codeFence + "\n" + childText.trim() + "\n" + codeFence + "\n");
+    else if (current.tag === "li") append("\n- " + childText.trim() + "\n");
+    else if (/^h[1-6]$/.test(current.tag)) append("\n\n" + "#".repeat(Number(current.tag[1])) + " " + childText.trim() + "\n\n");
     else if (current.tag === "th" || current.tag === "td") append(" | " + childText.trim());
-    else if (current.tag === "tr") append(childText + "\\n");
-    else if (BLOCK_ELEMENTS.has(current.tag)) append("\\n" + childText.trim() + "\\n");
+    else if (current.tag === "tr") append(childText + "\n");
+    else if (BLOCK_ELEMENTS.has(current.tag)) append("\n" + childText.trim() + "\n");
   }
 
   visit(node);
@@ -314,10 +316,10 @@ function extractNodeText(node, maxLength = Infinity) {
 
 function normalizeExtractedText(text) {
   return text
-    .replace(/[\\t\\f\\v ]+/g, " ")
-    .replace(/ *\\n */g, "\\n")
-    .replace(/\\n{3,}/g, "\\n\\n")
-    .replace(/\\n\\s*\\|/g, "\\n|")
+    .replace(/[\t\f\v ]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\n\s*\|/g, "\n|")
     .trim();
 }
 
