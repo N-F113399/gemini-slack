@@ -311,3 +311,267 @@ Gemini adapter、Gemini API呼び出し、URL取得・DNS検証の仕様変更�
 - `MAX_TOTAL_URL_HTML_TEXT_LENGTH`: URL HTML全体の上限。デフォルト50,000文字
 
 これらはHTML URLコンテンツのみに適用し、Slack添付ファイル由来のテキストやPDF等の既存制限には適用しない。
+
+
+---
+
+## 15. 追加改善案: ③本文領域選択精度の改善
+
+### 15.1 目的
+
+固定セレクタの優先順位だけではなく、複数の本文候補を比較して「本文らしさ」を評価することで、Laravel等の技術ドキュメント、Wikipedia、一般記事で本文領域をより正確に選択する。
+
+### 15.2 候補収集
+
+候補として以下を収集する。
+
+- `[itemprop="articleBody"]`
+- `main`
+- `[role="main"]`
+- `article`
+- content/article/main等を示すclass/idを持つ要素
+- body fallback
+
+候補ごとに以下を収集する。
+
+- element種別
+- テキスト長
+- `h1-h6` 数
+- `p` 数
+- `ul/ol` 数
+- `table` 数
+- `pre/code` 数
+- リンク数
+- boilerplate候補数
+- class/idのヒント
+
+### 15.3 候補スコアリング
+
+候補を「本文らしさ」で評価し、最も適切な候補を選択する。スコアの数値は初期値であり、実ページで調整可能なヒューリスティックとして扱う。
+
+| 特徴 | 方向 | 初期ウェイト例 |
+| --- | --- | ---: |
+| `itemprop="articleBody"` | 加点 | +100 |
+| `main` | 加点 | +60 |
+| `role="main"` | 加点 | +50 |
+| `article` | 加点 | +40 |
+| class/idにcontent/article/main | 加点 | +20 |
+| 適度な本文長 | 加点 | +0〜30 |
+| paragraph数 | 加点 | +0〜15 |
+| heading数 | 加点 | +0〜10 |
+| list/table/codeの存在 | 加点 | +0〜15 |
+| nav/sidebar/footer等のヒント | 減点 | -20〜-50 |
+| advertisement/cookie/share/related等 | 減点 | -20〜-50 |
+| リンク比率が極端に高い | 減点 | -20〜-40 |
+
+単純に最長の要素を選ぶ方式にはしない。長いsidebarやbody全体が本文候補より高得点になることを防ぐ。
+
+### 15.4 body fallback
+
+`body_fallback` は失敗扱いにはしない。明確な本文候補が存在しない場合や、候補のスコアがbodyを下回る場合は正常なfallbackとして扱う。
+
+一方で、実ページで選択理由を追跡できるよう、以下をmetadata/logへ記録する。
+
+- `candidateCount`
+- `selectedCandidate`
+- `selectedCandidateScore`
+- `extractionMethod`
+
+抽出方式の例:
+
+- `itemprop_articleBody`
+- `main`
+- `role_main`
+- `article`
+- `scored_candidate`
+- `body_fallback`
+
+現在のLaravel実測では `extractionMethod=body_fallback` だったため、実装時にはまずLaravel HTMLの実際のDOM構造と現行候補探索結果を確認する。
+
+### 15.5 選択時の原則
+
+- 本文を誤って削除するより、多少の不要情報を残す方を優先する。
+- class/idのキーワードだけで本文候補を無条件に削除しない。
+- `header` / `footer` をタグ名だけで機械的に除外しない。
+- 技術ドキュメントではコード・表・リストを本文らしさの重要な特徴として扱う。
+- Wikipediaやニュース記事ではナビゲーションや関連記事が本文候補にならないようにする。
+
+## 16. 追加改善案: ④HTML抽出処理の性能改善
+
+### 16.1 現状
+
+現在のLaravel実測では、URL取得約750ms、HTML抽出約1,798ms、Gemini処理約1,553msとなっている。HTML抽出処理は主要な処理時間の一つであり、優先的に計測・最適化する。
+
+### 16.2 まずフェーズ別に計測する
+
+いきなりアルゴリズムを変更せず、以下を計測する。
+
+| 項目 | 内容 |
+| --- | --- |
+| `parseTimeMs` | HTMLツリー解析 |
+| `cleanupTimeMs` | 不要要素除去 |
+| `selectionTimeMs` | 候補収集・スコアリング・選択 |
+| `textExtractionTimeMs` | 選択領域のテキスト化 |
+| `normalizationTimeMs` | 空白・改行正規化 |
+| `truncationTimeMs` | 上限適用 |
+| `totalProcessingTimeMs` | HTML処理全体 |
+
+### 16.3 DOM走査回数を削減する
+
+同一DOMを何度も走査している場合は、候補収集・不要要素判定・候補統計の収集を可能な範囲でまとめる。
+
+基本フロー:
+
+```text
+HTML
+ ↓
+HTML parser
+ ↓
+DOM traversal
+ ├─ 不要要素の判定
+ ├─ 本文候補の収集
+ └─ 候補統計の収集
+ ↓
+candidate scoring
+ ↓
+candidate selection
+ ↓
+selected candidateのblock extraction
+ ↓
+normalization
+ ↓
+limit
+```
+
+特に以下を避ける。
+
+- 候補ごとにHTML全体を再走査する
+- 候補スコア計算のために候補を毎回全文字列化する
+- 不要要素除去後に同じDOMを再解析する
+
+### 16.4 30,000文字上限を早期適用する
+
+現在のLaravel実測では `extractedTextLength=114830` に対して `finalTextLength=29955` となっている。最終的に30,000文字しか利用しないのであれば、上限到達後も全文を生成する必要はない。
+
+したがって、block extraction時に30,000文字到達を検知し、その時点で後続blockの抽出を停止する。
+
+```text
+candidate
+ ↓
+block extraction
+ ↓
+30,000文字到達？
+ ├─ No → 次のblock
+ └─ Yes → extraction終了
+```
+
+ただし、単純な文字列sliceではなくblock境界を維持する。
+
+### 16.5 block-level truncation
+
+以下を基本的な抽出単位とする。
+
+- heading
+- paragraph
+- list item
+- table row
+- code block
+
+上限直前まで完全なblockを追加し、次のblockで上限を超える場合はそこで停止する。単一blockが30,000文字を超える場合だけ、そのblock内部で安全に切り詰める。
+
+### 16.6 正規化処理
+
+正規化は必要最小限にする。
+
+- 空文字blockを早期除外
+- 連続空白の生成を抑制
+- 上限到達後の不要な正規化を行わない
+- 最終出力だけを対象にする処理は可能な範囲で最後にまとめる
+
+ただし、可読性を大きく損なう巨大な正規表現への統合は行わない。
+
+## 17. ③④の実装順序
+
+### Step 1: 現行実装の確認
+
+- 現行 `htmlProcessor.js` の候補探索
+- DOM走査回数
+- テキスト化処理
+- 上限適用位置
+- Laravelでbody fallbackになった理由
+
+### Step 2: 本文候補選択の改善
+
+- 候補収集
+- 候補統計
+- スコアリング
+- 候補選択
+- 診断metadata
+
+### Step 3: フェーズ別性能計測
+
+- parse
+- cleanup
+- selection
+- extraction
+- normalization
+- truncation
+
+### Step 4: 性能ボトルネックの最適化
+
+実測結果を見て、必要なものだけ実施する。
+
+- DOM走査回数削減
+- 候補スコア計算の効率化
+- block extractionの早期停止
+- 正規化処理の削減
+
+性能改善は一項目ずつ適用し、どの変更が効いたか分からなくなる状態を避ける。
+
+### Step 5: 実ページでの確認
+
+最低限以下を比較する。
+
+- Laravel公式ドキュメント
+- Wikipedia
+- 一般的な記事ページ
+
+確認項目:
+
+- 選択された候補
+- 抽出本文
+- 抽出文字数
+- 切り詰め有無
+- フェーズ別処理時間
+- Gemini input tokens
+- 回答品質
+
+## 18. 受け入れ基準
+
+### 本文抽出品質
+
+1. Laravel / Wikipedia / 一般記事で本文候補の選択結果を確認できる。
+2. ナビゲーション・広告・関連記事等が本文に大量混入しない。
+3. 見出し・コード・リスト・表等の重要情報が残る。
+4. body fallbackが必要なページでは正常にfallbackする。
+5. 本文の過剰な削除がない。
+
+### 性能
+
+1. HTML処理の各フェーズの時間が計測できる。
+2. 抽出上限を超えた後の不要なテキスト生成を抑制する。
+3. DOMの不要な再走査を減らす。
+4. 改修前後のHTML抽出時間を比較できる。
+
+### Gemini入力
+
+1. URL本文の文字数が30,000文字以内になる。
+2. 複数URLの合計が50,000文字以内になる。
+3. Geminiの `inputTokens` を改修前後で比較できる。
+4. 回答品質に明らかな劣化がない。
+
+### 回帰
+
+1. URL取得・DNS検証・SSRF対策に変更がない。
+2. PDF、画像、CSV、Slack添付ファイルの処理に影響がない。
+3. Gemini adapterの既存入力形式に影響がない。
