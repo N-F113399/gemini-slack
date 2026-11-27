@@ -13,7 +13,7 @@ const REMOVE_ELEMENTS = new Set([
   "script", "style", "noscript", "svg", "iframe", "form", "button",
   "input", "select", "textarea", "nav",
 ]);
-const REMOVE_HINTS = /(?:^|[-_\s])(advert|ads|cookie|consent|breadcrumb|sidebar|social|share|related|recommend|pagination|menu|toolbar)(?:$|[-_\s])/i;
+const REMOVE_HINTS = /(?:^|[-_\s])(advert|advertisement|ads?|ad-container|cookie|cookie-banner|consent|breadcrumb|sidebar|social|share|related|recommend|pagination|menu|toolbar)(?:$|[-_\s])/i;
 const BLOCK_ELEMENTS = new Set([
   "address", "article", "blockquote", "dd", "div", "dl", "dt", "fieldset",
   "figcaption", "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6",
