@@ -70,3 +70,65 @@ test("processHtmlContent applies the URL HTML text limit", () => {
     else process.env.MAX_URL_HTML_TEXT_LENGTH = original;
   }
 });
+
+
+test("htmlToText prefers articleBody and removes semantic and hinted boilerplate", () => {
+  const html = `<body>
+    <div class="cookie-banner">Accept cookies</div>
+    <div class="advertisement">Ad content</div>
+    <header>Article header</header>
+    <div itemprop="articleBody">
+      <h2>Article heading</h2>
+      <p>Important article content.</p>
+      <ul><li>First item</li><li>Second item</li></ul>
+    </div>
+    <div role="complementary">Related links</div>
+  </body>`;
+  const text = htmlToText(html);
+  assert.match(text, /Article heading/);
+  assert.match(text, /Important article content/);
+  assert.match(text, /- First item/);
+  assert.match(text, /- Second item/);
+  assert.doesNotMatch(text, /Accept cookies|Ad content|Related links/);
+});
+
+test("htmlToText preserves table row and cell structure", () => {
+  const text = htmlToText(`
+    <main>
+      <table>
+        <tr><th>Name</th><th>Value</th></tr>
+        <tr><td>foo</td><td>bar</td></tr>
+      </table>
+    </main>
+  `);
+  assert.match(text, /\| Name\| Value/);
+  assert.match(text, /\| foo\| bar/);
+});
+
+test("limitUrlHtmlContents applies the aggregate URL text limit", async () => {
+  const { limitUrlHtmlContents } = await import("../src/services/content/messageContentResolver.js");
+  const first = createContent({
+    id: "url:first",
+    kind: CONTENT_KINDS.REMOTE,
+    source: { type: SOURCE_TYPES.URL, ref: "https://example.com/first" },
+    original: { mimeType: "text/html" },
+    representations: [{ type: "text", mimeType: "text/plain", text: "First URL content." }],
+    metadata: { processedAs: "html" },
+  });
+  const second = createContent({
+    id: "url:second",
+    kind: CONTENT_KINDS.REMOTE,
+    source: { type: SOURCE_TYPES.URL, ref: "https://example.com/second" },
+    original: { mimeType: "text/html" },
+    representations: [{ type: "text", mimeType: "text/plain", text: "Second URL content." }],
+    metadata: { processedAs: "html" },
+  });
+
+  const limited = limitUrlHtmlContents([first, second], 20);
+  const firstText = limited[0].representations.find(r => r.type === "text").text;
+  const secondText = limited[1].representations.find(r => r.type === "text").text;
+
+  assert.equal(firstText, "First URL content.");
+  assert.equal(secondText.length <= 2, true);
+  assert.equal(limited[1].metadata.urlAggregateTruncated, true);
+});
